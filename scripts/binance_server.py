@@ -17,9 +17,9 @@ warnings.filterwarnings("ignore")
 class BinanceGetBalance(BaseTool):
     name: str = "BinanceGetBalance"
     description: str = "Lista o saldo de determinada cripto."
-    api_key: str = Field(default=None)  # Campo inicializável
-    secret_key: str = Field(default=None)  # Campo inicializável
-    client: Any = Field(default=None)  # Campo inicializável
+    api_key: str = Field(default=None)  
+    secret_key: str = Field(default=None)  
+    client: Any = Field(default=None)  
 
     def __init__(self, cripto_name: Optional[str] = None, **kwargs):
         super().__init__(**kwargs)
