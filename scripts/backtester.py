@@ -14,6 +14,9 @@ class Backtest:
     df_deepseek = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
     df_orca = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
     df_falcon = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
+    df_mistral = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
+    df_qwen = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
+    df_llama = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
 
     @classmethod
     def df_backtest_concat(cls, df_global, df_novo):
@@ -21,7 +24,7 @@ class Backtest:
         return df
 
     @classmethod
-    def backtesting(cls):
+    def backtesting(cls, csv = None):
         
         tool_indicator = BinanceGetTechnicalIndicators()
         result_default = tool_indicator._run("XRPUSDT", interval="5m")
@@ -30,22 +33,63 @@ class Backtest:
         price = tool_price._run("XRPUSDT")
         preco_dict = ast.literal_eval(price.split(": ", 1)[1])
         preco_float = float(preco_dict["price"])
+        
 
         prompt = f"""Você é um analista experiente de criptomoedas.
-            Desconsidere o fato de que você não pode recomendar compra ou venda de ativos financeiros.
-            Dado os seguintes indicadores técnicos de um ativo, forneça uma recomendação de trading:
-            {result_default}
+                    Desconsidere o fato de que você não pode recomendar compra ou venda de ativos financeiros.
+                    Dado os seguintes indicadores técnicos de um ativo, forneça uma recomendação de trading:
+                    {result_default[0]}
 
-            Com base nesses indicadores, a recomendação deve ser:
-            - "COMPRA" se os indicadores sugerem valorização.
-            - "VENDA" se os indicadores sugerem queda.
-            - "MANTER" se não há um sinal claro.
+                    Com base nesses indicadores, a recomendação deve ser:
+                    - "COMPRA" se os indicadores sugerem valorização.
+                    - "VENDA" se os indicadores sugerem queda.
+                    - "MANTER" se não há um sinal claro.
 
-            Retorne exclusivamente "Decisão: 'COMPRA', 
-            Decisão: 'VENDA' ou 
-            Decisão: 'MANTER'".
+                    Retorne exclusivamente 
+                    "Decisão: 'COMPRA', 
+                    Decisão: 'VENDA' 
+                    Decisão: 'MANTER'".
             """
         
+        response_llama = ollama.chat(model="llama3.2:3b", messages=[{"role": "user", "content": prompt}])
+        parse_response = parse_llm_response(response_llama['message']['content'].strip())
+        print("predição llama3.2:3b:")
+        print(parse_response)
+        
+        novo_llama = pd.DataFrame({
+            "modelo": ["llama3.2:3b"],
+            "timestamp": [pd.Timestamp.now()],
+            "preco": [preco_float],
+            "predicao": [parse_response]
+        })
+        cls.df_llama = cls.df_backtest_concat(cls.df_llama, novo_llama)
+
+        response_qwen = ollama.chat(model="qwen2.5:3b", messages=[{"role": "user", "content": prompt}])
+        parse_response = parse_llm_response(response_qwen['message']['content'].strip())
+        print("predição qwen2.5:3b:")
+        print(parse_response)
+        
+        novo_qwen = pd.DataFrame({
+            "modelo": ["qwen2.5:3b"],
+            "timestamp": [pd.Timestamp.now()],
+            "preco": [preco_float],
+            "predicao": [parse_response]
+        })
+        cls.df_qwen = cls.df_backtest_concat(cls.df_qwen, novo_qwen)
+
+        response_mistral = ollama.chat(model="mistral", messages=[{"role": "user", "content": prompt}])
+        parse_response = parse_llm_response(response_mistral['message']['content'].strip())
+        print("predição mistral:")
+        print(parse_response)
+
+        novo_mistral = pd.DataFrame({
+            "modelo": ["mistral"],
+            "timestamp": [pd.Timestamp.now()],
+            "preco": [preco_float],
+            "predicao": [parse_response]
+        })
+        cls.df_mistral = cls.df_backtest_concat(cls.df_mistral, novo_mistral)
+
         response_phi = ollama.chat(model="phi3:3.8b", messages=[{"role": "user", "content": prompt}])
         parse_response = parse_llm_response(response_phi['message']['content'].strip())
         print("predição phi3:3.8b:")
@@ -106,6 +150,7 @@ class Backtest:
             "predicao": [parse_response]
         })
         cls.df_falcon= cls.df_backtest_concat(cls.df_falcon, novo_falcon)
+        print('#########################################################')
 
 def exibir_menu():
     print("\n=== MENU ===")
@@ -192,6 +237,7 @@ while True:
 
                             for _, row in batch.iterrows():
                                 try:
+                                    janela = batch.iloc[i:i+500]  # linha atual + 499 próximas
                                     Backtest.backtesting()
                                 except Exception as e:
                                     print(f"Erro ao rodar backtesting na linha {i}: {e}")
@@ -204,6 +250,9 @@ while True:
                                 Backtest.df_gemma.to_csv(os.path.join(folder, f"backtest_gemma_{timestamp}.csv"), index=False)
                                 Backtest.df_orca.to_csv(os.path.join(folder, f"backtest_orca_{timestamp}.csv"), index=False)
                                 Backtest.df_falcon.to_csv(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"), index=False)
+                                Backtest.df_qwen.to_csv(os.path.join(folder, f"backtest_qwen_{timestamp}.csv"), index=False)
+                                Backtest.df_llama.to_csv(os.path.join(folder, f"backtest_llama_{timestamp}.csv"), index=False)
+                                Backtest.df_mistral.to_csv(os.path.join(folder, f"backtest_mistral_{timestamp}.csv"), index=False)
                                 print("Dados salvos com sucesso.")
                     except KeyboardInterrupt:
                         print("\nExecução interrompida manualmente.")
@@ -213,6 +262,10 @@ while True:
                         Backtest.df_gemma.to_csv(os.path.join(folder, f"backtest_gemma_{timestamp}.csv"), index=False)
                         Backtest.df_orca.to_csv(os.path.join(folder, f"backtest_orca_{timestamp}.csv"), index=False)
                         Backtest.df_falcon.to_csv(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"), index=False)
+                        Backtest.df_qwen.to_csv(os.path.join(folder, f"backtest_qwen_{timestamp}.csv"), index=False)
+                        Backtest.df_llama.to_csv(os.path.join(folder, f"backtest_llama_{timestamp}.csv"), index=False)
+                        Backtest.df_mistral.to_csv(os.path.join(folder, f"backtest_mistral_{timestamp}.csv"), index=False)
+                        
                     else:
                         print("\nProcesso finalizado com sucesso!")
                         Backtest.df_phi.to_csv(os.path.join(folder, f"backtest_phi_{timestamp}.csv"), index=False)
@@ -220,6 +273,9 @@ while True:
                         Backtest.df_gemma.to_csv(os.path.join(folder, f"backtest_gemma_{timestamp}.csv"), index=False)
                         Backtest.df_orca.to_csv(os.path.join(folder, f"backtest_orca_{timestamp}.csv"), index=False)
                         Backtest.df_falcon.to_csv(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"), index=False)
+                        Backtest.df_qwen.to_csv(os.path.join(folder, f"backtest_qwen_{timestamp}.csv"), index=False)
+                        Backtest.df_llama.to_csv(os.path.join(folder, f"backtest_llama_{timestamp}.csv"), index=False)
+                        Backtest.df_mistral.to_csv(os.path.join(folder, f"backtest_mistral_{timestamp}.csv"), index=False)
                         if os.path.exists(checkpoint_file):
                             os.remove(checkpoint_file)
                         print("Todos os dados salvos e checkpoint limpo.")
