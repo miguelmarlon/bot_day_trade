@@ -340,7 +340,6 @@ def parse_llm_response(response):
     return None
 
 
-
 ############################################################################################
 ## tentando conectar o mcp com praisonai
 # agent_yaml = """

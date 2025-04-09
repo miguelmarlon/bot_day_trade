@@ -24,18 +24,18 @@ class Backtest:
         return df
 
     @classmethod
-    def backtesting(cls, csv = None):
-        
-        tool_indicator = BinanceGetTechnicalIndicators()
-        result_default = tool_indicator._run("XRPUSDT", interval="5m")
+    def backtesting(cls, dados_csv = None):
+        if dados_csv is None:
+            
+            # Dados do momento: obtém indicadores técnicos e preço atual
+            tool_indicator = BinanceGetTechnicalIndicators()
+            result_default = tool_indicator._run("XRPUSDT", interval="5m")
 
-        tool_price = BinanceGetPrice()
-        price = tool_price._run("XRPUSDT")
-        preco_dict = ast.literal_eval(price.split(": ", 1)[1])
-        preco_float = float(preco_dict["price"])
-        
-
-        prompt = f"""Você é um analista experiente de criptomoedas.
+            tool_price = BinanceGetPrice()
+            price = tool_price._run("XRPUSDT")
+            preco_dict = ast.literal_eval(price.split(": ", 1)[1])
+            preco_float = float(preco_dict["price"])
+            prompt = f"""Você é um analista experiente de criptomoedas.
                     Desconsidere o fato de que você não pode recomendar compra ou venda de ativos financeiros.
                     Dado os seguintes indicadores técnicos de um ativo, forneça uma recomendação de trading:
                     {result_default[0]}
@@ -50,7 +50,39 @@ class Backtest:
                     Decisão: 'VENDA' 
                     Decisão: 'MANTER'".
             """
-        
+            
+        else:
+            try:
+                preco_float = dados_csv['close']
+                prompt = f"""Você é um analista experiente de criptomoedas.
+                    Desconsidere o fato de que você não pode recomendar compra ou venda de ativos financeiros.
+                    Dado os seguintes indicadores técnicos de um ativo, forneça uma recomendação de trading:
+                    open: {dados_csv['open']}
+                    high: {dados_csv['high']}
+                    low: {dados_csv['low']}
+                    close: {dados_csv['close']}
+                    SMA_50: {dados_csv['SMA_50']}
+                    SMA_200: {dados_csv['SMA_200']}
+                    EMA_20: {dados_csv['EMA_20']}
+                    EMA_50: {dados_csv['EMA_50']}
+                    RSI: {dados_csv['RSI']}
+                    ADX: {dados_csv['ADX']}
+                    MFI: {dados_csv['MFI']}
+
+                    Com base nesses indicadores, a recomendação deve ser:
+                    - "COMPRA" se os indicadores sugerem valorização.
+                    - "VENDA" se os indicadores sugerem queda.
+                    - "MANTER" se não há um sinal claro.
+
+                    Retorne exclusivamente 
+                    "Decisão: 'COMPRA', 
+                    Decisão: 'VENDA' 
+                    Decisão: 'MANTER'".
+            """
+                
+            except Exception as e:
+                raise ValueError(f"Erro ao carregar o arquivo CSV: {e}")
+            
         response_llama = ollama.chat(model="llama3.2:3b", messages=[{"role": "user", "content": prompt}])
         parse_response = parse_llm_response(response_llama['message']['content'].strip())
         print("predição llama3.2:3b:")
@@ -171,6 +203,55 @@ def opcao_3():
     print("""\nVocê escolheu a Opção 3!
           Backtest com dados do CSV.""")
 
+def executar_backtest_em_batch(df, batch_size=100, salvar_cada=100, checkpoint_file="checkpoint.txt"):
+    start_idx = 0
+    if os.path.exists(checkpoint_file):
+        with open(checkpoint_file, "r") as f:
+            start_idx = int(f.read().strip() or 0)
+        print(f"Retomando do índice {start_idx}...")
+    try:
+        for i in range(0, len(df), batch_size):
+            print(f"Rodando batch {i} até {i + batch_size}")
+
+            batch = df.iloc[i:i + batch_size]
+
+            for j, row in batch.iterrows():
+                try:
+                    Backtest.backtesting(row)
+                except Exception as e:
+                    print(f"Erro ao rodar backtesting na linha {j}: {e}")
+                    print("Linha com erro:")
+                    print(row.to_dict())
+                    import traceback
+                    traceback.print_exc()
+                    continue
+
+            if (i + batch_size) % salvar_cada == 0:
+                print("Salvando os CSVs parciais...")
+                salvar_resultados_csv()
+
+    except KeyboardInterrupt:
+        print("\nExecução interrompida manualmente.")
+        print("Salvando progresso...")
+        salvar_resultados_csv()
+
+    else:
+        print("\nProcesso finalizado com sucesso!")
+        salvar_resultados_csv()
+        if os.path.exists(checkpoint_file):
+            os.remove(checkpoint_file)
+        print("Todos os dados salvos e checkpoint limpo.")
+
+def salvar_resultados_csv():
+    Backtest.df_phi.to_csv(os.path.join(folder, f"backtest_phi_{timestamp}.csv"), index=False)
+    Backtest.df_deepseek.to_csv(os.path.join(folder, f"backtest_deepseek_{timestamp}.csv"), index=False)
+    Backtest.df_gemma.to_csv(os.path.join(folder, f"backtest_gemma_{timestamp}.csv"), index=False)
+    Backtest.df_orca.to_csv(os.path.join(folder, f"backtest_orca_{timestamp}.csv"), index=False)
+    Backtest.df_falcon.to_csv(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"), index=False)
+    Backtest.df_qwen.to_csv(os.path.join(folder, f"backtest_qwen_{timestamp}.csv"), index=False)
+    Backtest.df_llama.to_csv(os.path.join(folder, f"backtest_llama_{timestamp}.csv"), index=False)
+    Backtest.df_mistral.to_csv(os.path.join(folder, f"backtest_mistral_{timestamp}.csv"), index=False)
+
 while True:
         exibir_menu()
         folder="outputs/data"
@@ -178,117 +259,63 @@ while True:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M")
         try:
             escolha = int(input("Digite o número da opção desejada: "))
-            
-            if escolha == 1:
-                opcao_1()
-                try:
-                    backtest = Backtest()
-                    print("Iniciando backtest. Pressione Ctrl+C para parar.")
-                    while True:
-                        backtest.backtesting()
-                        print("Backtest realizado. Aguardando 5 minutos...")
-                        time.sleep(5 * 60)
-
-                except KeyboardInterrupt:
-                    print("Parando execução... Salvando arquivos CSV.")
-
-                    Backtest.df_phi.to_csv(os.path.join(folder, f"backtest_phi_{timestamp}.csv"), index=False)
-                    Backtest.df_deepseek.to_csv(os.path.join(folder, f"backtest_deepseek_{timestamp}.csv"), index=False)
-                    Backtest.df_gemma.to_csv(os.path.join(folder, f"backtest_gemma_{timestamp}.csv"), index=False)
-                    Backtest.df_orca.to_csv(os.path.join(folder, f"backtest_orca_{timestamp}.csv"), index=False)
-                    Backtest.df_falcon.to_csv(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"), index=False)
-                    print("Dados salvos com sucesso.")
-            elif escolha == 2:
-                opcao_2()
-                api_key = os.getenv("BINANCE_API_KEY")
-                secret_key = os.getenv("BINANCE_SECRET_KEY")
-                if not api_key or not secret_key:
-                    raise ValueError("As chaves da API da Binance não foram fornecidas.")
-                client = Client(api_key, secret_key)
-                symbol= str(input("Digite o ativo desejado: "))
-                interval = Client.KLINE_INTERVAL_5MINUTE
-                start_str = "2024-01-01 00:00:00"
-                end_str = "2024-03-31 00:00:00"
-                folder="outputs/data"
-
-                candles = get_historical_klines(symbol, interval, start_str, end_str)
-
-                df = pd.DataFrame(candles, columns=[
-                    "timestamp", "open", "high", "low", "close", "volume",
-                    "close_time", "quote_asset_volume", "number_of_trades",
-                    "taker_buy_base", "taker_buy_quote", "ignore"
-                ])
-                df["timestamp"] = pd.to_datetime(df["timestamp"], unit='ms')
-                df.to_csv(os.path.join(folder, f"dados_{symbol}_.csv"), index=False)
-
-            elif escolha == 3:
-                opcao_3()
-                def executar_backtest_em_batch(df, batch_size=100, salvar_cada=100, checkpoint_file="checkpoint.txt"):
-                    start_idx = 0
-                    if os.path.exists(checkpoint_file):
-                        with open(checkpoint_file, "r") as f:
-                            start_idx = int(f.read().strip() or 0)
-                        print(f"Retomando do índice {start_idx}...")
-                    try:
-                        for i in range(0, len(df), batch_size):
-                            print(f"Rodando batch {i} até {i + batch_size}")
-
-                            batch = df.iloc[i:i + batch_size]
-
-                            for _, row in batch.iterrows():
-                                try:
-                                    janela = batch.iloc[i:i+500]  # linha atual + 499 próximas
-                                    Backtest.backtesting()
-                                except Exception as e:
-                                    print(f"Erro ao rodar backtesting na linha {i}: {e}")
-                                    continue
-
-                            if (i + batch_size) % salvar_cada == 0:
-                                print("Salvando os CSVs parciais...")
-                                Backtest.df_phi.to_csv(os.path.join(folder, f"backtest_phi_{timestamp}.csv"), index=False)
-                                Backtest.df_deepseek.to_csv(os.path.join(folder, f"backtest_deepseek_{timestamp}.csv"), index=False)
-                                Backtest.df_gemma.to_csv(os.path.join(folder, f"backtest_gemma_{timestamp}.csv"), index=False)
-                                Backtest.df_orca.to_csv(os.path.join(folder, f"backtest_orca_{timestamp}.csv"), index=False)
-                                Backtest.df_falcon.to_csv(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"), index=False)
-                                Backtest.df_qwen.to_csv(os.path.join(folder, f"backtest_qwen_{timestamp}.csv"), index=False)
-                                Backtest.df_llama.to_csv(os.path.join(folder, f"backtest_llama_{timestamp}.csv"), index=False)
-                                Backtest.df_mistral.to_csv(os.path.join(folder, f"backtest_mistral_{timestamp}.csv"), index=False)
-                                print("Dados salvos com sucesso.")
-                    except KeyboardInterrupt:
-                        print("\nExecução interrompida manualmente.")
-                        print("Salvando progresso...")
-                        Backtest.df_phi.to_csv(os.path.join(folder, f"backtest_phi_{timestamp}.csv"), index=False)
-                        Backtest.df_deepseek.to_csv(os.path.join(folder, f"backtest_deepseek_{timestamp}.csv"), index=False)
-                        Backtest.df_gemma.to_csv(os.path.join(folder, f"backtest_gemma_{timestamp}.csv"), index=False)
-                        Backtest.df_orca.to_csv(os.path.join(folder, f"backtest_orca_{timestamp}.csv"), index=False)
-                        Backtest.df_falcon.to_csv(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"), index=False)
-                        Backtest.df_qwen.to_csv(os.path.join(folder, f"backtest_qwen_{timestamp}.csv"), index=False)
-                        Backtest.df_llama.to_csv(os.path.join(folder, f"backtest_llama_{timestamp}.csv"), index=False)
-                        Backtest.df_mistral.to_csv(os.path.join(folder, f"backtest_mistral_{timestamp}.csv"), index=False)
-                        
-                    else:
-                        print("\nProcesso finalizado com sucesso!")
-                        Backtest.df_phi.to_csv(os.path.join(folder, f"backtest_phi_{timestamp}.csv"), index=False)
-                        Backtest.df_deepseek.to_csv(os.path.join(folder, f"backtest_deepseek_{timestamp}.csv"), index=False)
-                        Backtest.df_gemma.to_csv(os.path.join(folder, f"backtest_gemma_{timestamp}.csv"), index=False)
-                        Backtest.df_orca.to_csv(os.path.join(folder, f"backtest_orca_{timestamp}.csv"), index=False)
-                        Backtest.df_falcon.to_csv(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"), index=False)
-                        Backtest.df_qwen.to_csv(os.path.join(folder, f"backtest_qwen_{timestamp}.csv"), index=False)
-                        Backtest.df_llama.to_csv(os.path.join(folder, f"backtest_llama_{timestamp}.csv"), index=False)
-                        Backtest.df_mistral.to_csv(os.path.join(folder, f"backtest_mistral_{timestamp}.csv"), index=False)
-                        if os.path.exists(checkpoint_file):
-                            os.remove(checkpoint_file)
-                        print("Todos os dados salvos e checkpoint limpo.")
-                
-                df = pd.read_csv('outputs\data\dados_symbol_BTCUSDT.csv')
-                executar_backtest_em_batch(df)
-
-            elif escolha == 0:
-                print("\nSaindo do programa. Até logo!")
-                break
-            else:
-                print("\nOpção inválida! Por favor, escolha uma opção disponível.")
-
         except ValueError:
-            print("\nEntrada inválida! Por favor, digite um número.")    
+                print("Entrada inválida! Por favor, digite um número.")
+                continue
+        
+        if escolha == 1:
+            opcao_1()
+            try:
+                backtest = Backtest()
+                print("Iniciando backtest. Pressione Ctrl+C para parar.")
+                while True:
+                    backtest.backtesting()
+                    print("Backtest realizado. Aguardando 5 minutos...")
+                    time.sleep(5 * 60)
+
+            except KeyboardInterrupt:
+                print("Parando execução... Salvando arquivos CSV.")
+
+                Backtest.df_phi.to_csv(os.path.join(folder, f"backtest_phi_{timestamp}.csv"), index=False)
+                Backtest.df_deepseek.to_csv(os.path.join(folder, f"backtest_deepseek_{timestamp}.csv"), index=False)
+                Backtest.df_gemma.to_csv(os.path.join(folder, f"backtest_gemma_{timestamp}.csv"), index=False)
+                Backtest.df_orca.to_csv(os.path.join(folder, f"backtest_orca_{timestamp}.csv"), index=False)
+                Backtest.df_falcon.to_csv(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"), index=False)
+                print("Dados salvos com sucesso.")
+        elif escolha == 2:
+            opcao_2()
+            api_key = os.getenv("BINANCE_API_KEY")
+            secret_key = os.getenv("BINANCE_SECRET_KEY")
+            if not api_key or not secret_key:
+                raise ValueError("As chaves da API da Binance não foram fornecidas.")
+            client = Client(api_key, secret_key)
+            symbol= str(input("Digite o ativo desejado: "))
+            interval = Client.KLINE_INTERVAL_5MINUTE
+            start_str = "2024-01-01 00:00:00"
+            end_str = "2024-03-31 00:00:00"
+            folder="outputs/data"
+
+            candles = get_historical_klines(symbol, interval, start_str, end_str)
+
+            df = pd.DataFrame(candles, columns=[
+                "timestamp", "open", "high", "low", "close", "volume",
+                "close_time", "quote_asset_volume", "number_of_trades",
+                "taker_buy_base", "taker_buy_quote", "ignore"
+            ])
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit='ms')
+            df.to_csv(os.path.join(folder, f"dados_{symbol}_.csv"), index=False)
+
+        elif escolha == 3:
+            
+            print("\nVocê escolheu a Opção 3!\nBacktest com dados do CSV.")
+            df = pd.read_csv('outputs/data/candles_com_indicadores_tecnicos.csv')
+            executar_backtest_em_batch(df)
+            
+        elif escolha == 0:
+            print("\nSaindo do programa. Até logo!")
+            break
+        else:
+            print("\nOpção inválida! Por favor, escolha uma opção disponível.")
+
+        
 
