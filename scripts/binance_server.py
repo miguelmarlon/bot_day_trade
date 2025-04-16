@@ -10,6 +10,7 @@ from typing import Any, Optional
 from embedchain.models.data_type import DataType
 from pydantic import Field
 import re
+import unicodedata
 import pandas as pd
 import warnings
 warnings.filterwarnings("ignore")
@@ -334,11 +335,31 @@ class BinanceGetTechnicalIndicators(BaseTool):
             return f"Erro ao buscar indicadores para {cripto_name}: {content['error']}"
 
 def parse_llm_response(response):
-    decision = re.search(r"Decisão:\s*(.+)", response)
-    if decision:
-        return decision.group(1).strip()
-    return None
 
+    """Remove acentuação e caracteres especiais do texto."""
+
+    texto = unicodedata.normalize('NFKD', response)
+    texto = texto.encode('ASCII', 'ignore').decode('utf-8')
+    if not texto:
+        return "INDEFINIDO"
+    
+    texto = texto.upper()
+    linhas = [linha.strip() for linha in texto.splitlines() if linha.strip()]
+    if not linhas:
+        return "INDEFINIDO"
+
+    primeira_linha = linhas[0]
+
+    match = re.search(r'\b(COMPRA|VENDA|MANTER|MANTENHO)\b', primeira_linha)
+    if match:
+        return match.group(1)
+    
+    match = re.search(r'\b(COMPRA|VENDA|MANTER|MANTENHO)\b', texto)
+    if match:
+        return match.group(1)
+    
+    return "INDEFINIDO"
+    
 
 ############################################################################################
 ## tentando conectar o mcp com praisonai

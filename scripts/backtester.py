@@ -4,19 +4,16 @@ import ollama
 import pandas as pd
 from binance_server import BinanceGetTechnicalIndicators, BinanceGetPrice, parse_llm_response
 import ast
-from utils.tools import create_folder, get_historical_klines
+from utils.tools import create_folder, get_historical_klines, analisar_predicoes, calculando_lucro_prej_operacao, calculando_taxa_acerto_erro, criando_relatorio_xlsx
 import os
 from binance.client import Client
 
 class Backtest:
     df_phi = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
-    df_gemma = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
-    df_deepseek = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
-    df_orca = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
     df_falcon = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
-    df_mistral = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
     df_qwen = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
-    df_llama = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
+    df_openchat = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
+    df_yi = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
 
     @classmethod
     def df_backtest_concat(cls, df_global, df_novo):
@@ -50,7 +47,6 @@ class Backtest:
                     Decisão: 'VENDA' 
                     Decisão: 'MANTER'".
             """
-            
         else:
             try:
                 preco_float = dados_csv['close']
@@ -83,19 +79,6 @@ class Backtest:
             except Exception as e:
                 raise ValueError(f"Erro ao carregar o arquivo CSV: {e}")
             
-        response_llama = ollama.chat(model="llama3.2:3b", messages=[{"role": "user", "content": prompt}])
-        parse_response = parse_llm_response(response_llama['message']['content'].strip())
-        print("predição llama3.2:3b:")
-        print(parse_response)
-        
-        novo_llama = pd.DataFrame({
-            "modelo": ["llama3.2:3b"],
-            "timestamp": [pd.Timestamp.now()],
-            "preco": [preco_float],
-            "predicao": [parse_response]
-        })
-        cls.df_llama = cls.df_backtest_concat(cls.df_llama, novo_llama)
-
         response_qwen = ollama.chat(model="qwen2.5:3b", messages=[{"role": "user", "content": prompt}])
         parse_response = parse_llm_response(response_qwen['message']['content'].strip())
         print("predição qwen2.5:3b:")
@@ -109,19 +92,6 @@ class Backtest:
         })
         cls.df_qwen = cls.df_backtest_concat(cls.df_qwen, novo_qwen)
 
-        response_mistral = ollama.chat(model="mistral", messages=[{"role": "user", "content": prompt}])
-        parse_response = parse_llm_response(response_mistral['message']['content'].strip())
-        print("predição mistral:")
-        print(parse_response)
-
-        novo_mistral = pd.DataFrame({
-            "modelo": ["mistral"],
-            "timestamp": [pd.Timestamp.now()],
-            "preco": [preco_float],
-            "predicao": [parse_response]
-        })
-        cls.df_mistral = cls.df_backtest_concat(cls.df_mistral, novo_mistral)
-
         response_phi = ollama.chat(model="phi3:3.8b", messages=[{"role": "user", "content": prompt}])
         parse_response = parse_llm_response(response_phi['message']['content'].strip())
         print("predição phi3:3.8b:")
@@ -134,42 +104,30 @@ class Backtest:
             "predicao": [parse_response]
         })
         cls.df_phi = cls.df_backtest_concat(cls.df_phi, novo_phi)
-        
-        response_deepseek = ollama.chat(model="deepseek-r1:8b", messages=[{"role": "user", "content": prompt}])
-        parse_response = parse_llm_response(response_deepseek['message']['content'].strip())
-        print("predição deepseek-r1:8b:")
-        print(parse_response)
-        novo_deepseek = pd.DataFrame({
-            "modelo": ["deepseek-r1:8b"],
-            "timestamp": [pd.Timestamp.now()],
-            "preco": [preco_float],
-            "predicao": [parse_response]
-        })
-        cls.df_deepseek = cls.df_backtest_concat(cls.df_deepseek, novo_deepseek)
 
-        response_gemma = ollama.chat(model="gemma3:4b", messages=[{"role": "user", "content": prompt}])
-        parse_response = parse_llm_response(response_gemma['message']['content'].strip())
-        print("predição gemma3:4b:")
+        response_openchat = ollama.chat(model="openchat:latest", messages=[{"role": "user", "content": prompt}])
+        parse_response = parse_llm_response(response_openchat['message']['content'].strip())
+        print("predição openchat:latest:")
         print(parse_response)
-        novo_gemma = pd.DataFrame({
-            "modelo": ["gemma3:4b"],
+        novo_openchat = pd.DataFrame({
+            "modelo": ["openchat:latest"],
             "timestamp": [pd.Timestamp.now()],
             "preco": [preco_float],
             "predicao": [parse_response]
         })
-        cls.df_gemma= cls.df_backtest_concat(cls.df_gemma, novo_gemma)
+        cls.df_openchat= cls.df_backtest_concat(cls.df_openchat, novo_openchat)
 
-        response_orca = ollama.chat(model="orca-mini:3b", messages=[{"role": "user", "content": prompt}])
-        parse_response = parse_llm_response(response_orca['message']['content'].strip())
-        print("predição orca-mini:3b:")
+        response_yi = ollama.chat(model="yi:6b", messages=[{"role": "user", "content": prompt}])
+        parse_response = parse_llm_response(response_yi['message']['content'].strip())
+        print("predição yi:6b:")
         print(parse_response)
-        novo_orca = pd.DataFrame({
-            "modelo": ["orca-mini:3b"],
+        novo_yi = pd.DataFrame({
+            "modelo": ["yi:6b"],
             "timestamp": [pd.Timestamp.now()],
             "preco": [preco_float],
             "predicao": [parse_response]
         })
-        cls.df_orca= cls.df_backtest_concat(cls.df_orca, novo_orca)
+        cls.df_yi= cls.df_backtest_concat(cls.df_yi, novo_yi)
 
         response_falcon = ollama.chat(model="falcon3:3b", messages=[{"role": "user", "content": prompt}])
         parse_response = parse_llm_response(response_falcon['message']['content'].strip())
@@ -197,7 +155,7 @@ def opcao_1():
     
 def opcao_2():
     print("""\nVocê escolheu a Opção 2!
-          Download de dados históricos da binance.""")
+          Download de dados históricos da Binance.""")
 
 def opcao_3():
     print("""\nVocê escolheu a Opção 3!
@@ -244,13 +202,68 @@ def executar_backtest_em_batch(df, batch_size=100, salvar_cada=100, checkpoint_f
 
 def salvar_resultados_csv():
     Backtest.df_phi.to_csv(os.path.join(folder, f"backtest_phi_{timestamp}.csv"), index=False)
-    Backtest.df_deepseek.to_csv(os.path.join(folder, f"backtest_deepseek_{timestamp}.csv"), index=False)
-    Backtest.df_gemma.to_csv(os.path.join(folder, f"backtest_gemma_{timestamp}.csv"), index=False)
-    Backtest.df_orca.to_csv(os.path.join(folder, f"backtest_orca_{timestamp}.csv"), index=False)
     Backtest.df_falcon.to_csv(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"), index=False)
     Backtest.df_qwen.to_csv(os.path.join(folder, f"backtest_qwen_{timestamp}.csv"), index=False)
-    Backtest.df_llama.to_csv(os.path.join(folder, f"backtest_llama_{timestamp}.csv"), index=False)
-    Backtest.df_mistral.to_csv(os.path.join(folder, f"backtest_mistral_{timestamp}.csv"), index=False)
+    Backtest.df_openchat.to_csv(os.path.join(folder, f"backtest_openchat_{timestamp}.csv"), index=False)
+    Backtest.df_yi.to_csv(os.path.join(folder, f"backtest_yi_{timestamp}.csv"), index=False)
+    csv_files = []
+
+    csv_files.append(os.path.join(folder, f"backtest_phi_{timestamp}.csv"))
+    csv_files.append(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"))
+    csv_files.append(os.path.join(folder, f"backtest_qwen_{timestamp}.csv"))
+    csv_files.append(os.path.join(folder, f"backtest_openchat_{timestamp}.csv"))
+    csv_files.append(os.path.join(folder, f"backtest_yi_{timestamp}.csv"))
+
+    dfs = []
+    numero_candles = []
+    for csv_file in csv_files:
+        
+        df = pd.read_csv(csv_file)
+        print(df)
+        numero_candles.append(len(df))
+        dfs.append(df)
+
+    combined_df = pd.concat(dfs, ignore_index=True)
+
+    criar_relatorio(combined_df, numero_candles, folder)
+
+def criar_relatorio(resultados_nao_tratados, numero_candles, folder):
+    import numpy as np
+
+    def mapear_decisao(decisao_limpa):
+        mapeamento_predicoes = {
+            "COMPRA": "COMPRA",
+            "VENDA": "VENDA",
+            "MANTER": "MANTER",
+            "MANTENHO": "MANTER"
+        }
+        return mapeamento_predicoes.get(decisao_limpa, "INDEFINIDO")
+    
+    resultados_nao_tratados['predicao_padronizada'] = resultados_nao_tratados['predicao'].apply(mapear_decisao)
+
+    resultados_nao_tratados.loc[resultados_nao_tratados['predicao_padronizada'] == "INDEFINIDO", 'predicao_padronizada'] = np.nan
+    
+    modelos_unicos = resultados_nao_tratados['modelo'].unique()
+    resultados_nao_tratados = resultados_nao_tratados.dropna()
+    resultados_nao_tratados.reset_index(drop=True)
+    
+    resultados_analise = analisar_predicoes(resultados_nao_tratados, modelos_unicos)
+    todos_resultados = []
+
+    # Percorre cada modelo e seus dados
+    for modelo, lista_resultados in resultados_analise.items():
+        for item in lista_resultados:
+            item['modelo'] = modelo  # adiciona o nome do modelo ao dicionário
+            todos_resultados.append(item)
+
+    # Cria o DataFrame final
+    df_todos_resultados = pd.DataFrame(todos_resultados)
+
+    resultado_por_modelo, preco_medio = calculando_lucro_prej_operacao(df_todos_resultados)
+
+    resumo = calculando_taxa_acerto_erro(df_todos_resultados, resultado_por_modelo)
+
+    criando_relatorio_xlsx(resumo, numero_candles, preco_medio, folder)
 
 while True:
         exibir_menu()
@@ -275,13 +288,9 @@ while True:
 
             except KeyboardInterrupt:
                 print("Parando execução... Salvando arquivos CSV.")
-
-                Backtest.df_phi.to_csv(os.path.join(folder, f"backtest_phi_{timestamp}.csv"), index=False)
-                Backtest.df_deepseek.to_csv(os.path.join(folder, f"backtest_deepseek_{timestamp}.csv"), index=False)
-                Backtest.df_gemma.to_csv(os.path.join(folder, f"backtest_gemma_{timestamp}.csv"), index=False)
-                Backtest.df_orca.to_csv(os.path.join(folder, f"backtest_orca_{timestamp}.csv"), index=False)
-                Backtest.df_falcon.to_csv(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"), index=False)
+                salvar_resultados_csv()
                 print("Dados salvos com sucesso.")
+
         elif escolha == 2:
             opcao_2()
             api_key = os.getenv("BINANCE_API_KEY")
@@ -291,8 +300,8 @@ while True:
             client = Client(api_key, secret_key)
             symbol= str(input("Digite o ativo desejado: "))
             interval = Client.KLINE_INTERVAL_5MINUTE
-            start_str = "2024-01-01 00:00:00"
-            end_str = "2024-03-31 00:00:00"
+            start_str = "2025-03-01 00:00:00"
+            end_str = "2025-03-12 00:00:00"
             folder="outputs/data"
 
             candles = get_historical_klines(symbol, interval, start_str, end_str)
@@ -308,7 +317,7 @@ while True:
         elif escolha == 3:
             
             print("\nVocê escolheu a Opção 3!\nBacktest com dados do CSV.")
-            df = pd.read_csv('outputs/data/candles_com_indicadores_tecnicos.csv')
+            df = pd.read_csv('outputs/data/USUALUSDT_com_indicadores_tecnicos.csv')
             executar_backtest_em_batch(df)
             
         elif escolha == 0:
@@ -316,6 +325,3 @@ while True:
             break
         else:
             print("\nOpção inválida! Por favor, escolha uma opção disponível.")
-
-        
-
