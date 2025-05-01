@@ -4,16 +4,15 @@ import ollama
 import pandas as pd
 from binance_server import BinanceGetTechnicalIndicators, BinanceGetPrice, parse_llm_response
 import ast
-from utils.tools import create_folder, get_historical_klines, analisar_predicoes, calculando_lucro_prej_operacao, calculando_taxa_acerto_erro, criando_relatorio_xlsx
+from utils.tools import create_folder, get_historical_klines, analisar_predicoes, calculando_lucro_prej_operacao, calculando_taxa_acerto_erro, criando_relatorio_xlsx, simular_trade_compra
 import os
 from binance.client import Client
+import ta
+from ta.trend import MACD
 
 class Backtest:
-    df_phi = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
-    df_falcon = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
-    df_qwen = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
-    df_openchat = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
-    df_yi = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
+    
+    df = pd.DataFrame(columns=["modelo", "timestamp", "preco", "predicao"])
 
     @classmethod
     def df_backtest_concat(cls, df_global, df_novo):
@@ -21,7 +20,7 @@ class Backtest:
         return df
 
     @classmethod
-    def backtesting(cls, dados_csv = None):
+    def backtesting(cls, modelo, dados_csv = None):
         if dados_csv is None:
             
             # Dados do momento: obtém indicadores técnicos e preço atual
@@ -49,6 +48,13 @@ class Backtest:
             """
         else:
             try:
+                # SMA_50: {dados_csv['SMA_50']}
+                # SMA_200: {dados_csv['SMA_200']}
+                # EMA_20: {dados_csv['EMA_20']}
+                # EMA_50: {dados_csv['EMA_50']}
+                # RSI: {dados_csv['RSI']}
+                # ADX: {dados_csv['ADX']}
+                # MFI: {dados_csv['MFI']}
                 preco_float = dados_csv['close']
                 prompt = f"""Você é um analista experiente de criptomoedas.
                     Desconsidere o fato de que você não pode recomendar compra ou venda de ativos financeiros.
@@ -57,13 +63,13 @@ class Backtest:
                     high: {dados_csv['high']}
                     low: {dados_csv['low']}
                     close: {dados_csv['close']}
+                    RSI: {dados_csv['RSI']}
+                    ADX: {dados_csv['ADX']}
+                    MFI: {dados_csv['MFI']}
                     SMA_50: {dados_csv['SMA_50']}
                     SMA_200: {dados_csv['SMA_200']}
                     EMA_20: {dados_csv['EMA_20']}
                     EMA_50: {dados_csv['EMA_50']}
-                    RSI: {dados_csv['RSI']}
-                    ADX: {dados_csv['ADX']}
-                    MFI: {dados_csv['MFI']}
 
                     Com base nesses indicadores, a recomendação deve ser:
                     - "COMPRA" se os indicadores sugerem valorização.
@@ -79,69 +85,20 @@ class Backtest:
             except Exception as e:
                 raise ValueError(f"Erro ao carregar o arquivo CSV: {e}")
             
-        response_qwen = ollama.chat(model="qwen2.5:3b", messages=[{"role": "user", "content": prompt}])
-        parse_response = parse_llm_response(response_qwen['message']['content'].strip())
-        print("predição qwen2.5:3b:")
+        response = ollama.chat(model=modelo, messages=[{"role": "user", "content": prompt}])
+        parse_response = parse_llm_response(response['message']['content'].strip())
+        print(f"predição {modelo}:")
         print(parse_response)
-        
-        novo_qwen = pd.DataFrame({
-            "modelo": ["qwen2.5:3b"],
+        novo = pd.DataFrame({
+            "modelo": [modelo],
             "timestamp": [pd.Timestamp.now()],
             "preco": [preco_float],
             "predicao": [parse_response]
         })
-        cls.df_qwen = cls.df_backtest_concat(cls.df_qwen, novo_qwen)
+        cls.df= cls.df_backtest_concat(cls.df, novo)
 
-        response_phi = ollama.chat(model="phi3:3.8b", messages=[{"role": "user", "content": prompt}])
-        parse_response = parse_llm_response(response_phi['message']['content'].strip())
-        print("predição phi3:3.8b:")
-        print(parse_response)
-        
-        novo_phi = pd.DataFrame({
-            "modelo": ["phi3:3.8b"],
-            "timestamp": [pd.Timestamp.now()],
-            "preco": [preco_float],
-            "predicao": [parse_response]
-        })
-        cls.df_phi = cls.df_backtest_concat(cls.df_phi, novo_phi)
-
-        response_openchat = ollama.chat(model="openchat:latest", messages=[{"role": "user", "content": prompt}])
-        parse_response = parse_llm_response(response_openchat['message']['content'].strip())
-        print("predição openchat:latest:")
-        print(parse_response)
-        novo_openchat = pd.DataFrame({
-            "modelo": ["openchat:latest"],
-            "timestamp": [pd.Timestamp.now()],
-            "preco": [preco_float],
-            "predicao": [parse_response]
-        })
-        cls.df_openchat= cls.df_backtest_concat(cls.df_openchat, novo_openchat)
-
-        response_yi = ollama.chat(model="yi:6b", messages=[{"role": "user", "content": prompt}])
-        parse_response = parse_llm_response(response_yi['message']['content'].strip())
-        print("predição yi:6b:")
-        print(parse_response)
-        novo_yi = pd.DataFrame({
-            "modelo": ["yi:6b"],
-            "timestamp": [pd.Timestamp.now()],
-            "preco": [preco_float],
-            "predicao": [parse_response]
-        })
-        cls.df_yi= cls.df_backtest_concat(cls.df_yi, novo_yi)
-
-        response_falcon = ollama.chat(model="falcon3:3b", messages=[{"role": "user", "content": prompt}])
-        parse_response = parse_llm_response(response_falcon['message']['content'].strip())
-        print("predição falcon3:3b:")
-        print(parse_response)
-        novo_falcon = pd.DataFrame({
-            "modelo": ["falcon3:3b"],
-            "timestamp": [pd.Timestamp.now()],
-            "preco": [preco_float],
-            "predicao": [parse_response]
-        })
-        cls.df_falcon= cls.df_backtest_concat(cls.df_falcon, novo_falcon)
-        print('#########################################################')
-
+        return parse_response
+    
 def exibir_menu():
     print("\n=== MENU ===")
     print("1. Backtest com dados em tempo real")
@@ -161,71 +118,114 @@ def opcao_3():
     print("""\nVocê escolheu a Opção 3!
           Backtest com dados do CSV.""")
 
-def executar_backtest_em_batch(df, batch_size=100, salvar_cada=100, checkpoint_file="checkpoint.txt"):
+def executar_backtest_em_batch(df, modelo, batch_size=100, salvar_cada=100, checkpoint_file="checkpoint.txt"):
     start_idx = 0
     if os.path.exists(checkpoint_file):
         with open(checkpoint_file, "r") as f:
             start_idx = int(f.read().strip() or 0)
         print(f"Retomando do índice {start_idx}...")
     try:
-        for i in range(0, len(df), batch_size):
-            print(f"Rodando batch {i} até {i + batch_size}")
+        j = start_idx
+        id_trade_counter = 1
+        resultados_trades = []
+        
+        while j < len(df):
+            try:
+                print(f"Índice j: {j}")
+                row = df.iloc[j]
+                predicao = Backtest.backtesting(modelo, row)
+                if predicao == "COMPRA":
+                    preco_entrada = row["close"]
+                    candles_seguinte = df.iloc[j+1:]
+                    timestamp_entrada = row["timestamp"]
 
-            batch = df.iloc[i:i + batch_size]
+                    lucro_prejuizo, resultado_percentual, indice_fim_trade, tempo_operacao, resumo = simular_trade_compra(preco_entrada, candles_seguinte, stop_loss=0.05, stop_gain=0.10)
+                    linha_saida = df.iloc[indice_fim_trade]
+                    preco_saida = linha_saida["close"]
+                    timestamp_saida = linha_saida["timestamp"]
+                    
+                    # Armazena o trade com as informações
+                    resultados_trades.append({
+                        "id_trade": id_trade_counter,
+                        "indice_inicio": j,
+                        "indice_fim": indice_fim_trade,
+                        "preco_entrada": preco_entrada,
+                        "preco_saida": preco_saida,
+                        "lucro_prejuizo": lucro_prejuizo,
+                        "resultado_percentual": resultado_percentual,
+                        "timestamp_entrada": timestamp_entrada,
+                        "timestamp_saida": timestamp_saida,
+                        "tempo_operacao": tempo_operacao
+                    })
+                    print(f'\nResultado percentual: {resultado_percentual}')
+                    print(f'Lucro/prejuizo: {lucro_prejuizo}')
+                    print("\n#####################################")
+                    id_trade_counter += 1
+                    
+                    # Atualiza o índice para continuar a partir de onde o trade terminou
+                    j = indice_fim_trade + 1
+                else:
+                    j += 1
+            except Exception as e:
+                print(f"Erro ao rodar backtesting na linha {j}: {e}")
+                print("Linha com erro:")
+                print(row.to_dict())
+                import traceback
+                traceback.print_exc()
+                continue
 
-            for j, row in batch.iterrows():
-                try:
-                    Backtest.backtesting(row)
-                except Exception as e:
-                    print(f"Erro ao rodar backtesting na linha {j}: {e}")
-                    print("Linha com erro:")
-                    print(row.to_dict())
-                    import traceback
-                    traceback.print_exc()
-                    continue
-
-            if (i + batch_size) % salvar_cada == 0:
-                print("Salvando os CSVs parciais...")
-                salvar_resultados_csv()
+        if j % salvar_cada == 0:
+            print("Salvando checkpoint e resultados parciais...")
+            with open(checkpoint_file, "w") as f:
+                f.write(str(j))
+            salvar_resultados_csv(resultados_trades, modelo)
 
     except KeyboardInterrupt:
         print("\nExecução interrompida manualmente.")
         print("Salvando progresso...")
-        salvar_resultados_csv()
+        salvar_resultados_csv(resultados_trades, modelo)
 
     else:
         print("\nProcesso finalizado com sucesso!")
-        salvar_resultados_csv()
+        salvar_resultados_csv(resultados_trades, modelo)
         if os.path.exists(checkpoint_file):
             os.remove(checkpoint_file)
         print("Todos os dados salvos e checkpoint limpo.")
 
-def salvar_resultados_csv():
-    Backtest.df_phi.to_csv(os.path.join(folder, f"backtest_phi_{timestamp}.csv"), index=False)
-    Backtest.df_falcon.to_csv(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"), index=False)
-    Backtest.df_qwen.to_csv(os.path.join(folder, f"backtest_qwen_{timestamp}.csv"), index=False)
-    Backtest.df_openchat.to_csv(os.path.join(folder, f"backtest_openchat_{timestamp}.csv"), index=False)
-    Backtest.df_yi.to_csv(os.path.join(folder, f"backtest_yi_{timestamp}.csv"), index=False)
-    csv_files = []
-
-    csv_files.append(os.path.join(folder, f"backtest_phi_{timestamp}.csv"))
-    csv_files.append(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"))
-    csv_files.append(os.path.join(folder, f"backtest_qwen_{timestamp}.csv"))
-    csv_files.append(os.path.join(folder, f"backtest_openchat_{timestamp}.csv"))
-    csv_files.append(os.path.join(folder, f"backtest_yi_{timestamp}.csv"))
-
-    dfs = []
-    numero_candles = []
-    for csv_file in csv_files:
+def salvar_resultados_csv(resultados_trades, nome_arquivo):
+    
+    if resultados_trades:
+        df_resultados = pd.DataFrame(resultados_trades)
+        if os.path.exists(nome_arquivo):
+            df_existente = pd.read_csv(nome_arquivo)
+            df_resultados = pd.concat([df_existente, df_resultados], ignore_index=True)
+        df_resultados = df_resultados.drop_duplicates(subset=['id_trade', 'indice_inicio', 'indice_fim', 'preco_entrada', 'preco_saida', 'timestamp_entrada', 'timestamp_saida'])
+        modelo = nome_arquivo.replace(':', '').replace('.', '').replace('-', '')
         
-        df = pd.read_csv(csv_file)
-        print(df)
-        numero_candles.append(len(df))
-        dfs.append(df)
+        df_resultados.to_csv(f'outputs/data/resultados_trades_{modelo}.csv', index=False)
+        print(f"Resultados salvos em outputs/data/resultados_trades_{modelo}.csv")
 
-    combined_df = pd.concat(dfs, ignore_index=True)
+    # Backtest.df_falcon.to_csv(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"), index=False)
+    # Backtest.df_qwen.to_csv(os.path.join(folder, f"backtest_qwen_{timestamp}.csv"), index=False)
+    # Backtest.df_yi.to_csv(os.path.join(folder, f"backtest_yi_{timestamp}.csv"), index=False)
+    # csv_files = []
 
-    criar_relatorio(combined_df, numero_candles, folder)
+    # csv_files.append(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"))
+    # csv_files.append(os.path.join(folder, f"backtest_qwen_{timestamp}.csv"))
+    # csv_files.append(os.path.join(folder, f"backtest_yi_{timestamp}.csv"))
+
+    # dfs = []
+    # numero_candles = []
+    # for csv_file in csv_files:
+        
+    #     df = pd.read_csv(csv_file)
+    #     print(df)
+    #     numero_candles.append(len(df))
+    #     dfs.append(df)
+
+    # combined_df = pd.concat(dfs, ignore_index=True)
+
+    # criar_relatorio(combined_df, numero_candles, folder)
 
 def criar_relatorio(resultados_nao_tratados, numero_candles, folder):
     import numpy as np
@@ -299,9 +299,13 @@ while True:
                 raise ValueError("As chaves da API da Binance não foram fornecidas.")
             client = Client(api_key, secret_key)
             symbol= str(input("Digite o ativo desejado: "))
+            start = str(input("Digite a data inicial (formato ano-mes-dia): "))
+            end = str(input("Digite a data final (formato ano-mes-dia): "))
+            start_str = f"{start} 00:00:00"
+            end_str = f"{end} 00:00:00"
             interval = Client.KLINE_INTERVAL_5MINUTE
-            start_str = "2025-03-01 00:00:00"
-            end_str = "2025-03-12 00:00:00"
+            start_str = "2025-04-24 00:00:00"
+            end_str = "2025-04-27 00:00:00"
             folder="outputs/data"
 
             candles = get_historical_klines(symbol, interval, start_str, end_str)
@@ -312,16 +316,50 @@ while True:
                 "taker_buy_base", "taker_buy_quote", "ignore"
             ])
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit='ms')
-            df.to_csv(os.path.join(folder, f"dados_{symbol}_.csv"), index=False)
+            
+            df['close'] = pd.to_numeric(df['close'], errors='coerce')
+            df['high'] = pd.to_numeric(df['close'], errors='coerce')
+            df['low'] = pd.to_numeric(df['close'], errors='coerce')
+            df['volume'] = pd.to_numeric(df['close'], errors='coerce')
+            close = df['close']
+            high = df['high']
+            low = df['low']
+            volume = df['volume']
+
+            # SMA e EMA
+            df['SMA_50'] = ta.trend.sma_indicator(close, window=50)
+            df['SMA_200'] = ta.trend.sma_indicator(close, window=200)
+            df['EMA_20'] = ta.trend.ema_indicator(close, window=20)
+            df['EMA_50'] = ta.trend.ema_indicator(close, window=50)
+
+            # RSI
+            df['RSI'] = ta.momentum.rsi(close, window=14)
+
+            # MACD
+            macd = MACD(close=close)
+            df['MACD'] = macd.macd()
+            df['MACD_signal'] = macd.macd_signal()
+            df['MACD_diff'] = macd.macd_diff()
+
+            # ADX
+            df['ADX'] = ta.trend.adx(high, low, close, window=14)
+
+            # MFI
+            df['MFI'] = ta.volume.money_flow_index(high, low, close, volume, window=14)
+            df.dropna(inplace=True)
+            df.to_csv(f'outputs/data/{symbol}_com_indicadores_tecnicos.csv', index=False)
 
         elif escolha == 3:
-            
+            modelos = ['openchat:latest', 'llama3.2:3b', 'falcon3:3b', 'orca-mini:3b', 'qwen3:4b', 
+                       'deepseek-r1:8b']
             print("\nVocê escolheu a Opção 3!\nBacktest com dados do CSV.")
-            df = pd.read_csv('outputs/data/USUALUSDT_com_indicadores_tecnicos.csv')
-            executar_backtest_em_batch(df)
+            for modelo in modelos:
+                df = pd.read_csv('outputs/data/SHIBUSDT_com_indicadores_tecnicos.csv')
+                executar_backtest_em_batch(df, modelo)
             
         elif escolha == 0:
             print("\nSaindo do programa. Até logo!")
             break
+
         else:
             print("\nOpção inválida! Por favor, escolha uma opção disponível.")

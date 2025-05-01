@@ -217,6 +217,7 @@ def calculando_taxa_acerto_erro(df_todos_resultados, resultado_por_modelo):
     return resumo
 
 def criando_relatorio_xlsx(resumo, numero_candles, preco_medio, folder):
+
     data_atual = datetime.date.today()
     data_atual_formatada = data_atual.strftime("%d-%m-%Y")
 
@@ -267,3 +268,109 @@ def criando_relatorio_xlsx(resumo, numero_candles, preco_medio, folder):
         melhor_modelo_df.to_excel(writer, sheet_name="Melhor modelo", index=False)
 
     print(f"Relatório completo salvo em '{nome_arquivo_excel}'")
+
+def simular_trade_compra(
+    preco_entrada,
+    df_candles,
+    valor_investido=100,
+    stop_loss=0.03,
+    stop_gain=0.05,
+    taxa_corretagem=0.01,
+    usar_trailing_stop=True,
+    trailing_percentual=0.02,
+    usar_break_even=True,
+    break_even_trigger=0.03
+):
+    """
+    Simula uma operação de compra a partir de um preço de entrada, considerando valor investido, taxa de corretagem e estratégias de proteção como trailing stop e break-even.
+
+    Esta função percorre candles futuros e verifica se os preços atingem os critérios de stop loss, stop gain, trailing stop ou break-even, encerrando a operação conforme o primeiro gatilho acionado. Caso nenhum seja atingido, a venda ocorre ao final do último candle.
+
+    Args:
+        preco_entrada (float): Preço de entrada no trade.
+        df_candles (pd.DataFrame): DataFrame com candles subsequentes. Deve conter colunas: 'timestamp', 'high', 'low', 'close'.
+        valor_investido (float): Valor em dólares investido na operação (default 100).
+        stop_loss (float): Percentual de perda máxima aceitável (default 0.03 = 3%).
+        stop_gain (float): Percentual de ganho alvo (default 0.05 = 5%).
+        taxa_corretagem (float): Taxa de corretagem aplicada em cada operação (default 0.01 = 1%).
+        usar_trailing_stop (bool): Se True, ativa o trailing stop (default True).
+        trailing_percentual (float): Percentual do trailing stop abaixo do novo topo (default 0.02 = 2%).
+        usar_break_even (bool): Se True, ativa o break-even (default True).
+        break_even_trigger (float): Percentual de lucro necessário para mover o stop para o preço de entrada (default 0.03 = 3%).
+
+    Returns:
+        tuple: 
+            - valor_lucro_prejuizo (float): Lucro ou prejuízo absoluto em dólares.
+            - resultado_percentual (float): Retorno percentual da operação.
+            - indice_saida (int): Índice do candle onde o trade foi encerrado.
+            - duracao (timedelta): Tempo total da operação.
+            - resumo (str): String descritiva resumindo a operação.
+    """
+    
+    df_candles['timestamp'] = pd.to_datetime(df_candles['timestamp'])
+    
+    stop_loss_price = preco_entrada * (1 - stop_loss)
+    stop_gain_price = preco_entrada * (1 + stop_gain)
+    
+    valor_efetivo_compra = valor_investido * (1 - taxa_corretagem)
+    quantidade = valor_efetivo_compra / preco_entrada
+    timestamp_entrada = df_candles.iloc[0]["timestamp"]
+    
+    max_price = preco_entrada
+    break_even_ativado = False
+
+    print(f"\n🟢 INICIANDO OPERAÇÃO DE COMPRA")
+    print(f"Preço de entrada: {preco_entrada:.8f}")
+    print(f"Stop Loss inicial: {stop_loss_price:.8f}")
+    print(f"Stop Gain: {stop_gain_price:.8f}")
+    print(f"Trailing ativo: {usar_trailing_stop} | Break-even ativo: {usar_break_even}")
+
+    for i, (_, row) in enumerate(df_candles.iterrows()):
+        timestamp_atual = row["timestamp"]
+        high = row["high"]
+        low = row["low"]
+
+        # Trailing stop: atualiza stop loss baseado no high
+        if usar_trailing_stop:
+            if high > max_price:
+                max_price = high
+                novo_stop = max_price * (1 - trailing_percentual)
+                if novo_stop > stop_loss_price:
+                    print(f"🔁 Atualizando trailing stop: {stop_loss_price:.8f} -> {novo_stop:.8f}")
+                    stop_loss_price = novo_stop
+
+        # Break-even: move stop para entrada após atingir lucro mínimo
+        if usar_break_even and not break_even_ativado:
+            if high >= preco_entrada * (1 + break_even_trigger):
+                stop_loss_price = preco_entrada
+                break_even_ativado = True
+                print(f"⚖️ Break-even ativado! Novo stop: {stop_loss_price:.8f}")
+
+        # Stop loss atingido
+        if low <= stop_loss_price:
+            preco_venda = stop_loss_price * (1 - taxa_corretagem)
+            lucro_prejuizo = quantidade * (preco_venda - preco_entrada)
+            tempo_operacao = timestamp_atual - timestamp_entrada
+            print(f"🔴 Stop Loss atingido em {stop_loss_price:.8f} | Venda por {preco_venda:.8f}")
+            resumo = f"Stop Loss acionado em {timestamp_atual}, após {tempo_operacao}. Preço de venda: {preco_venda:.8f}."
+            return lucro_prejuizo, lucro_prejuizo / valor_investido, row.name, tempo_operacao, resumo
+
+        # Stop gain atingido
+        if high >= stop_gain_price:
+            preco_venda = stop_gain_price * (1 - taxa_corretagem)
+            lucro_prejuizo = quantidade * (preco_venda - preco_entrada)
+            tempo_operacao = timestamp_atual - timestamp_entrada
+            print(f"🟢 Stop Gain atingido em {stop_gain_price:.8f} | Venda por {preco_venda:.8f}")
+            resumo = f"Stop Gain acionado em {timestamp_atual}, após {tempo_operacao}. Preço de venda: {preco_venda:.8f}."
+            return lucro_prejuizo, lucro_prejuizo / valor_investido, row.name, tempo_operacao, resumo
+
+    # Nenhum stop atingido: vende no fechamento do último candle
+    ultimo_preco = df_candles.iloc[-1]["close"]
+    preco_venda = ultimo_preco * (1 - taxa_corretagem)
+    lucro_prejuizo = quantidade * (preco_venda - preco_entrada)
+    resultado_percentual = (preco_venda - preco_entrada) / preco_entrada
+    tempo_operacao = df_candles.iloc[-1]["timestamp"] - timestamp_entrada
+    print(f"⚪ Operação encerrada no fechamento ({ultimo_preco:.8f}) sem atingir stop.")
+    resumo = f"Trade encerrado no fechamento final em {df_candles.iloc[-1]['timestamp']}, após {tempo_operacao}. Preço de venda: {preco_venda:.8f}."
+    
+    return lucro_prejuizo, resultado_percentual, df_candles.iloc[-1].name, tempo_operacao, resumo
