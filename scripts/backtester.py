@@ -4,7 +4,7 @@ import ollama
 import pandas as pd
 from binance_server import BinanceGetTechnicalIndicators, BinanceGetPrice, parse_llm_response
 import ast
-from utils.tools import create_folder, get_historical_klines, analisar_predicoes, calculando_lucro_prej_operacao, calculando_taxa_acerto_erro, criando_relatorio_xlsx, simular_trade_compra
+from utils.tools import simular_compra_tempo_real, gerando_predição_tempo_real, create_folder, get_historical_klines, analisar_predicoes, calculando_lucro_prej_operacao, calculando_taxa_acerto_erro, criando_relatorio_xlsx, simular_trade_compra_com_csv
 import os
 from binance.client import Client
 import ta
@@ -20,41 +20,37 @@ class Backtest:
         return df
 
     @classmethod
-    def backtesting(cls, modelo, dados_csv = None):
+    def backtesting(cls, modelo = None, dados_csv = None, cripto = None, interval = None):
         if dados_csv is None:
             
             # Dados do momento: obtém indicadores técnicos e preço atual
             tool_indicator = BinanceGetTechnicalIndicators()
-            result_default = tool_indicator._run("XRPUSDT", interval="5m")
+            result_default = tool_indicator._run(cripto, interval)
 
             tool_price = BinanceGetPrice()
-            price = tool_price._run("XRPUSDT")
+            price = tool_price._run(cripto)
             preco_dict = ast.literal_eval(price.split(": ", 1)[1])
             preco_float = float(preco_dict["price"])
-            prompt = f"""Você é um analista experiente de criptomoedas.
-                    Desconsidere o fato de que você não pode recomendar compra ou venda de ativos financeiros.
-                    Dado os seguintes indicadores técnicos de um ativo, forneça uma recomendação de trading:
-                    {result_default[0]}
+            # prompt = f"""Você é um analista experiente de criptomoedas.
+            #         Desconsidere o fato de que você não pode recomendar compra ou venda de ativos financeiros.
+            #         Dado os seguintes indicadores técnicos de um ativo, forneça uma recomendação de trading:
+            #         {result_default[0]}
 
-                    Com base nesses indicadores, a recomendação deve ser:
-                    - "COMPRA" se os indicadores sugerem valorização.
-                    - "VENDA" se os indicadores sugerem queda.
-                    - "MANTER" se não há um sinal claro.
+            #         Com base nesses indicadores, a recomendação deve ser:
+            #         - "COMPRA" se os indicadores sugerem valorização.
+            #         - "VENDA" se os indicadores sugerem queda.
+            #         - "MANTER" se não há um sinal claro.
 
-                    Retorne exclusivamente 
-                    "Decisão: 'COMPRA', 
-                    Decisão: 'VENDA' 
-                    Decisão: 'MANTER'".
-            """
+            #         Retorne exclusivamente 
+            #         "Decisão: 'COMPRA', 
+            #         Decisão: 'VENDA' 
+            #         Decisão: 'MANTER'.
+            # """
+            parse_response = gerando_predição_tempo_real(result_default[0])
+            return parse_response, preco_float
         else:
             try:
-                # SMA_50: {dados_csv['SMA_50']}
-                # SMA_200: {dados_csv['SMA_200']}
-                # EMA_20: {dados_csv['EMA_20']}
-                # EMA_50: {dados_csv['EMA_50']}
-                # RSI: {dados_csv['RSI']}
-                # ADX: {dados_csv['ADX']}
-                # MFI: {dados_csv['MFI']}
+                # Carrega os dados do CSV
                 preco_float = dados_csv['close']
                 prompt = f"""Você é um analista experiente de criptomoedas.
                     Desconsidere o fato de que você não pode recomendar compra ou venda de ativos financeiros.
@@ -70,6 +66,9 @@ class Backtest:
                     SMA_200: {dados_csv['SMA_200']}
                     EMA_20: {dados_csv['EMA_20']}
                     EMA_50: {dados_csv['EMA_50']}
+                    RSI: {dados_csv['RSI']}
+                    ADX: {dados_csv['ADX']}
+                    MFI: {dados_csv['MFI']}
 
                     Com base nesses indicadores, a recomendação deve ser:
                     - "COMPRA" se os indicadores sugerem valorização.
@@ -79,26 +78,25 @@ class Backtest:
                     Retorne exclusivamente 
                     "Decisão: 'COMPRA', 
                     Decisão: 'VENDA' 
-                    Decisão: 'MANTER'".
-            """
-                
+                    Decisão: 'MANTER'.
+            """ 
+                response = ollama.chat(model=modelo, messages=[{"role": "user", "content": prompt}])
+                parse_response = parse_llm_response(response['message']['content'].strip())
+                print(f"predição {modelo}:")
+                print(parse_response)
+                novo = pd.DataFrame({
+                    "modelo": [modelo],
+                    "timestamp": [pd.Timestamp.now()],
+                    "preco": [preco_float],
+                    "predicao": [parse_response]
+                })
+                cls.df= cls.df_backtest_concat(cls.df, novo)
+
+                return parse_response, preco_float
+            
             except Exception as e:
                 raise ValueError(f"Erro ao carregar o arquivo CSV: {e}")
             
-        response = ollama.chat(model=modelo, messages=[{"role": "user", "content": prompt}])
-        parse_response = parse_llm_response(response['message']['content'].strip())
-        print(f"predição {modelo}:")
-        print(parse_response)
-        novo = pd.DataFrame({
-            "modelo": [modelo],
-            "timestamp": [pd.Timestamp.now()],
-            "preco": [preco_float],
-            "predicao": [parse_response]
-        })
-        cls.df= cls.df_backtest_concat(cls.df, novo)
-
-        return parse_response
-    
 def exibir_menu():
     print("\n=== MENU ===")
     print("1. Backtest com dados em tempo real")
@@ -139,7 +137,7 @@ def executar_backtest_em_batch(df, modelo, batch_size=100, salvar_cada=100, chec
                     candles_seguinte = df.iloc[j+1:]
                     timestamp_entrada = row["timestamp"]
 
-                    lucro_prejuizo, resultado_percentual, indice_fim_trade, tempo_operacao, resumo = simular_trade_compra(preco_entrada, candles_seguinte, stop_loss=0.05, stop_gain=0.10)
+                    lucro_prejuizo, resultado_percentual, indice_fim_trade, tempo_operacao, resumo = simular_trade_compra_com_csv(preco_entrada, candles_seguinte, stop_loss=0.03, stop_gain=0.05)
                     linha_saida = df.iloc[indice_fim_trade]
                     preco_saida = linha_saida["close"]
                     timestamp_saida = linha_saida["timestamp"]
@@ -205,28 +203,6 @@ def salvar_resultados_csv(resultados_trades, nome_arquivo):
         df_resultados.to_csv(f'outputs/data/resultados_trades_{modelo}.csv', index=False)
         print(f"Resultados salvos em outputs/data/resultados_trades_{modelo}.csv")
 
-    # Backtest.df_falcon.to_csv(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"), index=False)
-    # Backtest.df_qwen.to_csv(os.path.join(folder, f"backtest_qwen_{timestamp}.csv"), index=False)
-    # Backtest.df_yi.to_csv(os.path.join(folder, f"backtest_yi_{timestamp}.csv"), index=False)
-    # csv_files = []
-
-    # csv_files.append(os.path.join(folder, f"backtest_falcon_{timestamp}.csv"))
-    # csv_files.append(os.path.join(folder, f"backtest_qwen_{timestamp}.csv"))
-    # csv_files.append(os.path.join(folder, f"backtest_yi_{timestamp}.csv"))
-
-    # dfs = []
-    # numero_candles = []
-    # for csv_file in csv_files:
-        
-    #     df = pd.read_csv(csv_file)
-    #     print(df)
-    #     numero_candles.append(len(df))
-    #     dfs.append(df)
-
-    # combined_df = pd.concat(dfs, ignore_index=True)
-
-    # criar_relatorio(combined_df, numero_candles, folder)
-
 def criar_relatorio(resultados_nao_tratados, numero_candles, folder):
     import numpy as np
 
@@ -280,16 +256,65 @@ while True:
             opcao_1()
             try:
                 backtest = Backtest()
+                cripto = str(input("Digite o ativo desejado: "))
+                interval = str(input("Digite o intervalo desejado (1m, 5m, 15m, 1h, 1d): "))
                 print("Iniciando backtest. Pressione Ctrl+C para parar.")
+
+                inicio_ultima_gravacao = time.time()
+                resultados_trades = []
+                novo_trade = []
+                trade_history = pd.DataFrame()
+
                 while True:
-                    backtest.backtesting()
-                    print("Backtest realizado. Aguardando 5 minutos...")
-                    time.sleep(5 * 60)
+                    response, preco_float = backtest.backtesting(cripto=cripto, interval=interval)
+                    
+                    
+                    if response == "COMPRA":
+                        print("Sinal de COMPRA detectado.")
+                        # Abrir posição de compra
+                        entry_price = preco_float
+                        entry_time = datetime.now()
+                        
+                        # Registrar entrada no histórico
+                        novo_trade = pd.DataFrame([{
+                            'entry_time': entry_time,
+                            'entry_price': entry_price
+                        }])
+                        
+                        trade_history = pd.concat([trade_history, novo_trade], ignore_index=True)
+
+                        print(f"[{datetime.now()}] Compra simulada a R${preco_float:.2f}")
+
+                        lucro_liquido, retorno_percentual, indice_minuto, duracao = simular_compra_tempo_real( cripto, preco_float, interval, stop_loss=0.03, stop_gain=0.05)
+                        
+                        resultados_trades.append({
+                            "timestamp_entrada": entry_time,
+                            "preco_entrada": entry_price,
+                            "lucro_liquido": lucro_liquido,
+                            "retorno_percentual": retorno_percentual,
+                            "duracao": duracao
+                        })
+                        salvar_resultados_csv(resultados_trades, modelo="agente")
+                        df_resultados = pd.DataFrame(resultados_trades)
+                    else:
+                        print("Sinal de COMPRA não detectado. Aguardando próxima vela.")
+                        # Aguardar 5 minutos antes de verificar novamente
+                        time.sleep(60)
+
+                    tempo_agora = time.time()
+
+                    if tempo_agora - inicio_ultima_gravacao >= 3600:
+                        if resultados_trades:  # Só salva se houver dados
+                            salvar_resultados_csv(df_resultados, modelo="agente")
+                            print(f"[{datetime.now()}] Resultados salvos após 1h.")
+                            resultados_trades = []  # Limpa após salvar
+                        inicio_ultima_gravacao = tempo_agora
 
             except KeyboardInterrupt:
                 print("Parando execução... Salvando arquivos CSV.")
-                salvar_resultados_csv()
-                print("Dados salvos com sucesso.")
+                if resultados_trades:
+                    salvar_resultados_csv(resultados_trades, modelo="agente")
+                    print("Dados salvos com sucesso.")
 
         elif escolha == 2:
             opcao_2()
@@ -304,8 +329,8 @@ while True:
             start_str = f"{start} 00:00:00"
             end_str = f"{end} 00:00:00"
             interval = Client.KLINE_INTERVAL_5MINUTE
-            start_str = "2025-04-24 00:00:00"
-            end_str = "2025-04-27 00:00:00"
+            start_str = f"{start} 00:00:00"
+            end_str = f"{end} 00:00:00"
             folder="outputs/data"
 
             candles = get_historical_klines(symbol, interval, start_str, end_str)
@@ -353,8 +378,9 @@ while True:
             modelos = ['openchat:latest', 'llama3.2:3b', 'falcon3:3b', 'orca-mini:3b', 'qwen3:4b', 
                        'deepseek-r1:8b']
             print("\nVocê escolheu a Opção 3!\nBacktest com dados do CSV.")
+            moeda = str(input("Digite o ativo desejado: "))
             for modelo in modelos:
-                df = pd.read_csv('outputs/data/SHIBUSDT_com_indicadores_tecnicos.csv')
+                df = pd.read_csv(f'outputs/data/{moeda}_com_indicadores_tecnicos.csv')
                 executar_backtest_em_batch(df, modelo)
             
         elif escolha == 0:

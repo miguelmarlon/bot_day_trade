@@ -4,6 +4,8 @@ from binance.client import Client
 import time
 from datetime import datetime, timedelta
 import datetime
+import ollama
+from scripts.binance_server import parse_llm_response, BinanceGetPrice
 
 def create_folder(folder):
     os.makedirs(folder, exist_ok=True)
@@ -269,7 +271,7 @@ def criando_relatorio_xlsx(resumo, numero_candles, preco_medio, folder):
 
     print(f"Relatório completo salvo em '{nome_arquivo_excel}'")
 
-def simular_trade_compra(
+def simular_trade_compra_com_csv(
     preco_entrada,
     df_candles,
     valor_investido=100,
@@ -280,7 +282,7 @@ def simular_trade_compra(
     trailing_percentual=0.02,
     usar_break_even=True,
     break_even_trigger=0.03
-):
+    ):
     """
     Simula uma operação de compra a partir de um preço de entrada, considerando valor investido, taxa de corretagem e estratégias de proteção como trailing stop e break-even.
 
@@ -374,3 +376,230 @@ def simular_trade_compra(
     resumo = f"Trade encerrado no fechamento final em {df_candles.iloc[-1]['timestamp']}, após {tempo_operacao}. Preço de venda: {preco_venda:.8f}."
     
     return lucro_prejuizo, resultado_percentual, df_candles.iloc[-1].name, tempo_operacao, resumo
+
+# def simular_trade_compra(
+#     preco_entrada,
+#     df_candles,
+#     valor_investido=100,
+#     stop_loss=0.03,
+#     stop_gain=0.05,
+#     taxa_corretagem=0.01,
+#     usar_trailing_stop=False,
+#     trailing_percentual=0.02,
+#     usar_break_even=False,
+#     break_even_trigger=0.03
+# ):
+#     stop_gain_price = preco_entrada * (1 + stop_gain)
+#     stop_loss_price = preco_entrada * (1 - stop_loss)
+#     preco_entrada_com_corretagem = preco_entrada * (1 + taxa_corretagem)
+
+#     trailing_ativado = False
+#     max_price = preco_entrada
+
+#     break_even_ativado = False
+#     df_candles['timestamp'] = pd.to_datetime(df_candles['timestamp'])
+    
+#     for i, row in df_candles.iterrows():
+#         high = row["high"]
+#         low = row["low"]
+
+#         # Break even: se atingiu trigger, mova stop para o preço de entrada + taxa
+#         if usar_break_even and not break_even_ativado and high >= preco_entrada * (1 + break_even_trigger):
+#             stop_loss_price = preco_entrada_com_corretagem
+#             break_even_ativado = True
+
+#         # Trailing stop: ativa somente se o preço estiver acima da entrada + corretagem
+#         if usar_trailing_stop:
+#             if high > preco_entrada_com_corretagem and not trailing_ativado:
+#                 trailing_ativado = True
+#                 # print(f"📈 Trailing stop ativado! Preço ultrapassou a entrada + corretagem ({preco_entrada_com_corretagem:.8f})")
+
+#             if trailing_ativado and high > max_price:
+#                 max_price = high
+#                 novo_stop = max_price * (1 - trailing_percentual)
+#                 if novo_stop > stop_loss_price:
+#                     # print(f"🔁 Atualizando trailing stop: {stop_loss_price:.8f} -> {novo_stop:.8f}")
+#                     stop_loss_price = novo_stop
+
+#         # Stop Gain
+#         if high >= stop_gain_price:
+#             preco_saida = stop_gain_price
+#             break
+
+#         # Stop Loss
+#         if low <= stop_loss_price:
+#             preco_saida = stop_loss_price
+#             break
+#     else:
+#         # Caso nenhum dos dois alvos tenha sido atingido
+#         preco_saida = df_candles.iloc[-1]["close"]
+#         i = df_candles.index[-1]
+
+#     # Cálculo do lucro
+#     preco_entrada_total = preco_entrada * (1 + taxa_corretagem)
+#     preco_saida_total = preco_saida * (1 - taxa_corretagem)
+#     retorno_pct = (preco_saida_total - preco_entrada_total) / preco_entrada_total
+#     lucro = valor_investido * retorno_pct
+
+#     timestamp_entrada = df_candles.iloc[0]["timestamp"]
+#     timestamp_saida = row["timestamp"]
+#     tempo_operacao = timestamp_saida - timestamp_entrada
+#     tempo_em_minutos = tempo_operacao.total_seconds() / 60
+
+#     resumo = "gain" if preco_saida >= stop_gain_price else "loss" if preco_saida <= stop_loss_price else "neutro"
+
+#     return lucro, retorno_pct, i, tempo_em_minutos, resumo
+
+def gerando_predição_tempo_real(result,  modelo = None,):
+    """
+    Função para gerar predições com o modelo de linguagem.
+    """
+    prompt_gerador_relatorio = f"""
+                    Com base nesses dados fornecidos a seguir, crie uma recomendação de compra, venda ou manter possição:
+                    {result}
+                        """
+    relatorio = ollama.chat(model="llama3.2:3b", messages=[{"role": "user", "content": prompt_gerador_relatorio}])
+
+    prompt_analista = f"""Você é um analista experiente de criptomoedas.
+                    Desconsidere o fato de que você não pode recomendar compra ou venda de ativos financeiros.
+                    Dado o seguinte relatório, forneça uma recomendação de trading:
+                    {relatorio['message']['content'].strip()}
+
+                    Com base nesse relatório, a recomendação deve ser:
+                    - "COMPRA" se os indicadores sugerem valorização.
+                    - "VENDA" se os indicadores sugerem queda.
+                    - "MANTER" se não há um sinal claro.
+
+                    Retorne exclusivamente 
+                    "Decisão: 'COMPRA', 
+                    Decisão: 'VENDA' 
+                    Decisão: 'MANTER'.
+            """
+
+    # Preciso defini qual modelo usar
+    
+    response = ollama.chat(model="llama3.2:3b", messages=[{"role": "user", "content": prompt_analista}])
+    parse_response = parse_llm_response(response['message']['content'].strip())
+    print(f"predição {modelo}:")
+    print(parse_response)
+    
+    return parse_response
+
+def simular_compra_tempo_real(cripto, 
+                              preco_entrada,
+                                valor_investido=100,
+                                stop_loss=0.03,
+                                stop_gain=0.05,
+                                taxa_corretagem=0.01,
+                                usar_trailing_stop=True,
+                                trailing_percentual=0.02,
+                                usar_break_even=True,
+                                break_even_trigger=0.03,
+                                get_preco_atual=None,
+                                verbose=True):
+    """
+    Simula uma operação de compra a partir de um preço de entrada, considerando valor investido, taxa de corretagem e estratégias de proteção como trailing stop e break-even.
+
+    Esta função verifica o valor do ativo a cada minuto e verifica se os preços atingem os critérios de stop loss, stop gain, trailing stop ou break-even, encerrando a operação conforme o primeiro gatilho acionado.
+    
+    Args:
+        preco_entrada (float): Preço de entrada no trade.
+        valor_investido (float): Valor em dólares investido na operação (default 100).
+        stop_loss (float): Percentual de perda máxima aceitável (default 0.03 = 3%).
+        stop_gain (float): Percentual de ganho alvo (default 0.05 = 5%).
+        taxa_corretagem (float): Taxa de corretagem aplicada em cada operação (default 0.01 = 1%).
+        usar_trailing_stop (bool): Se True, ativa o trailing stop (default True).
+        trailing_percentual (float): Percentual do trailing stop abaixo do novo topo (default 0.02 = 2%).
+        usar_break_even (bool): Se True, ativa o break-even (default True).
+        break_even_trigger (float): Percentual de lucro necessário para mover o stop para o preço de entrada (default 0.03 = 3%).
+
+    Returns:
+        tuple: 
+            - valor_lucro_prejuizo (float): Lucro ou prejuízo absoluto em dólares.
+            - resultado_percentual (float): Retorno percentual da operação.
+            - indice_saida (int): Índice do candle onde o trade foi encerrado.
+            - duracao (timedelta): Tempo total da operação.
+            - resumo (str): String descritiva resumindo a operação.
+    """
+
+    quantidade = valor_investido / preco_entrada
+    preco_stop = preco_entrada * (1 - stop_loss)
+    preco_alvo = preco_entrada * (1 + stop_gain)
+    trailing_topo = preco_entrada
+    preco_break_even = preco_entrada
+    atingiu_break_even = False
+
+    inicio_operacao = datetime.now()
+    indice_minuto = 0
+
+    if verbose:
+        print(f"[{inicio_operacao}] Início da operação.")
+        print(f"Preço de entrada: {preco_entrada:.2f}")
+        print(f"Alvo: {preco_alvo:.2f}, Stop loss: {preco_stop:.2f}")
+        print(f"Trailing ativo: {usar_trailing_stop}, Break-even ativo: {usar_break_even}\n")
+
+    def get_preco_atual():
+        try:
+            tool_price = BinanceGetPrice()
+            price = tool_price._run(cripto)
+            return price
+        except Exception as e:
+            print(f"Erro ao obter preço atual: {e}")
+            return None
+    
+    while True:
+        preco_atual = get_preco_atual()
+
+        if preco_atual is None:
+            if verbose:
+                print(f"[{datetime.now()}] Preço indisponível. Aguardando 30 segundos...")
+            time.sleep(30)
+            continue
+
+        if verbose:
+            print(f"[{datetime.now()}] Minuto {indice_minuto} - Preço atual: {preco_atual:.2f}")
+            print(f"Preço stop atual: {preco_stop:.2f} | Topo: {trailing_topo:.2f}")
+
+        # Verifica Stop Loss
+        if preco_atual <= preco_stop:
+            resultado = "Stop Loss"
+            if verbose:
+                print(f"[{datetime.now()}] Stop Loss acionado a {preco_atual:.2f}")
+            break
+
+        # Verifica Stop Gain
+        if preco_atual >= preco_alvo:
+            resultado = "Stop Gain"
+            if verbose:
+                print(f"[{datetime.now()}] Stop Gain acionado a {preco_atual:.2f}")
+            break
+
+        # Verifica Break Even
+        if usar_break_even and not atingiu_break_even:
+            if preco_atual >= preco_entrada * (1 + break_even_trigger):
+                preco_stop = preco_break_even
+                atingiu_break_even = True
+                if verbose:
+                    print(f"[{datetime.now()}] Break-even ativado. Novo stop: {preco_stop:.2f}")
+        # Verifica Trailing Stop
+        if usar_trailing_stop and preco_atual > trailing_topo:
+            trailing_topo = preco_atual
+            preco_stop = trailing_topo * (1 - trailing_percentual)
+            if verbose:
+                print(f"[{datetime.now()}] Novo topo: {trailing_topo:.2f} | Novo stop (trailing): {preco_stop:.2f}")
+
+        time.sleep(60)  # Espera 1 minuto
+        indice_minuto += 1
+
+    # Cálculo do resultado
+    preco_saida = preco_atual
+    valor_final = preco_saida * quantidade
+    lucro_bruto = valor_final - valor_investido
+    custo_corretagem = valor_investido * taxa_corretagem + valor_final * taxa_corretagem
+    lucro_liquido = lucro_bruto - custo_corretagem
+    retorno_percentual = lucro_liquido / valor_investido
+    duracao = datetime.now() - inicio_operacao
+
+    resumo = f"{resultado} atingido após {indice_minuto} minutos. Lucro líquido: ${lucro_liquido:.2f} ({retorno_percentual:.2%})"
+
+    return lucro_liquido, retorno_percentual, indice_minuto, duracao
