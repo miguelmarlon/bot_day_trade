@@ -31,21 +31,7 @@ class Backtest:
             price = tool_price._run(cripto)
             preco_dict = ast.literal_eval(price.split(": ", 1)[1])
             preco_float = float(preco_dict["price"])
-            # prompt = f"""Você é um analista experiente de criptomoedas.
-            #         Desconsidere o fato de que você não pode recomendar compra ou venda de ativos financeiros.
-            #         Dado os seguintes indicadores técnicos de um ativo, forneça uma recomendação de trading:
-            #         {result_default[0]}
-
-            #         Com base nesses indicadores, a recomendação deve ser:
-            #         - "COMPRA" se os indicadores sugerem valorização.
-            #         - "VENDA" se os indicadores sugerem queda.
-            #         - "MANTER" se não há um sinal claro.
-
-            #         Retorne exclusivamente 
-            #         "Decisão: 'COMPRA', 
-            #         Decisão: 'VENDA' 
-            #         Decisão: 'MANTER'.
-            # """
+            
             parse_response = gerando_predição_tempo_real(result_default[0])
             return parse_response, preco_float
         else:
@@ -285,7 +271,7 @@ while True:
 
                         print(f"[{datetime.now()}] Compra simulada a R${preco_float:.2f}")
 
-                        lucro_liquido, retorno_percentual, indice_minuto, duracao = simular_compra_tempo_real( cripto, preco_float, interval, stop_loss=0.03, stop_gain=0.05)
+                        lucro_liquido, retorno_percentual, indice_minuto, duracao = simular_compra_tempo_real(cripto, preco_float, stop_loss=0.03, stop_gain=0.05)
                         
                         resultados_trades.append({
                             "timestamp_entrada": entry_time,
@@ -308,6 +294,8 @@ while True:
                             salvar_resultados_csv(df_resultados, modelo="agente")
                             print(f"[{datetime.now()}] Resultados salvos após 1h.")
                             resultados_trades = []  # Limpa após salvar
+                        else:
+                            print(f"[{datetime.now()}] Nenhum dado para salvar.")
                         inicio_ultima_gravacao = tempo_agora
 
             except KeyboardInterrupt:
@@ -315,6 +303,8 @@ while True:
                 if resultados_trades:
                     salvar_resultados_csv(resultados_trades, modelo="agente")
                     print("Dados salvos com sucesso.")
+                else:
+                    print("Nenhum dado para salvar.")
 
         elif escolha == 2:
             opcao_2()

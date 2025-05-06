@@ -1,7 +1,11 @@
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
 import os
 import pandas as pd
 from binance.client import Client
 import time
+import ast
 from datetime import datetime, timedelta
 import datetime
 import ollama
@@ -377,78 +381,78 @@ def simular_trade_compra_com_csv(
     
     return lucro_prejuizo, resultado_percentual, df_candles.iloc[-1].name, tempo_operacao, resumo
 
-# def simular_trade_compra(
-#     preco_entrada,
-#     df_candles,
-#     valor_investido=100,
-#     stop_loss=0.03,
-#     stop_gain=0.05,
-#     taxa_corretagem=0.01,
-#     usar_trailing_stop=False,
-#     trailing_percentual=0.02,
-#     usar_break_even=False,
-#     break_even_trigger=0.03
-# ):
-#     stop_gain_price = preco_entrada * (1 + stop_gain)
-#     stop_loss_price = preco_entrada * (1 - stop_loss)
-#     preco_entrada_com_corretagem = preco_entrada * (1 + taxa_corretagem)
+def simular_trade_compra(
+    preco_entrada,
+    df_candles,
+    valor_investido=100,
+    stop_loss=0.03,
+    stop_gain=0.05,
+    taxa_corretagem=0.01,
+    usar_trailing_stop=False,
+    trailing_percentual=0.02,
+    usar_break_even=False,
+    break_even_trigger=0.03
+):
+    stop_gain_price = preco_entrada * (1 + stop_gain)
+    stop_loss_price = preco_entrada * (1 - stop_loss)
+    preco_entrada_com_corretagem = preco_entrada * (1 + taxa_corretagem)
 
-#     trailing_ativado = False
-#     max_price = preco_entrada
+    trailing_ativado = False
+    max_price = preco_entrada
 
-#     break_even_ativado = False
-#     df_candles['timestamp'] = pd.to_datetime(df_candles['timestamp'])
+    break_even_ativado = False
+    df_candles['timestamp'] = pd.to_datetime(df_candles['timestamp'])
     
-#     for i, row in df_candles.iterrows():
-#         high = row["high"]
-#         low = row["low"]
+    for i, row in df_candles.iterrows():
+        high = row["high"]
+        low = row["low"]
 
-#         # Break even: se atingiu trigger, mova stop para o preço de entrada + taxa
-#         if usar_break_even and not break_even_ativado and high >= preco_entrada * (1 + break_even_trigger):
-#             stop_loss_price = preco_entrada_com_corretagem
-#             break_even_ativado = True
+        # Break even: se atingiu trigger, mova stop para o preço de entrada + taxa
+        if usar_break_even and not break_even_ativado and high >= preco_entrada * (1 + break_even_trigger):
+            stop_loss_price = preco_entrada_com_corretagem
+            break_even_ativado = True
 
-#         # Trailing stop: ativa somente se o preço estiver acima da entrada + corretagem
-#         if usar_trailing_stop:
-#             if high > preco_entrada_com_corretagem and not trailing_ativado:
-#                 trailing_ativado = True
-#                 # print(f"📈 Trailing stop ativado! Preço ultrapassou a entrada + corretagem ({preco_entrada_com_corretagem:.8f})")
+        # Trailing stop: ativa somente se o preço estiver acima da entrada + corretagem
+        if usar_trailing_stop:
+            if high > preco_entrada_com_corretagem and not trailing_ativado:
+                trailing_ativado = True
+                # print(f"📈 Trailing stop ativado! Preço ultrapassou a entrada + corretagem ({preco_entrada_com_corretagem:.8f})")
 
-#             if trailing_ativado and high > max_price:
-#                 max_price = high
-#                 novo_stop = max_price * (1 - trailing_percentual)
-#                 if novo_stop > stop_loss_price:
-#                     # print(f"🔁 Atualizando trailing stop: {stop_loss_price:.8f} -> {novo_stop:.8f}")
-#                     stop_loss_price = novo_stop
+            if trailing_ativado and high > max_price:
+                max_price = high
+                novo_stop = max_price * (1 - trailing_percentual)
+                if novo_stop > stop_loss_price:
+                    # print(f"🔁 Atualizando trailing stop: {stop_loss_price:.8f} -> {novo_stop:.8f}")
+                    stop_loss_price = novo_stop
 
-#         # Stop Gain
-#         if high >= stop_gain_price:
-#             preco_saida = stop_gain_price
-#             break
+        # Stop Gain
+        if high >= stop_gain_price:
+            preco_saida = stop_gain_price
+            break
 
-#         # Stop Loss
-#         if low <= stop_loss_price:
-#             preco_saida = stop_loss_price
-#             break
-#     else:
-#         # Caso nenhum dos dois alvos tenha sido atingido
-#         preco_saida = df_candles.iloc[-1]["close"]
-#         i = df_candles.index[-1]
+        # Stop Loss
+        if low <= stop_loss_price:
+            preco_saida = stop_loss_price
+            break
+    else:
+        # Caso nenhum dos dois alvos tenha sido atingido
+        preco_saida = df_candles.iloc[-1]["close"]
+        i = df_candles.index[-1]
 
-#     # Cálculo do lucro
-#     preco_entrada_total = preco_entrada * (1 + taxa_corretagem)
-#     preco_saida_total = preco_saida * (1 - taxa_corretagem)
-#     retorno_pct = (preco_saida_total - preco_entrada_total) / preco_entrada_total
-#     lucro = valor_investido * retorno_pct
+    # Cálculo do lucro
+    preco_entrada_total = preco_entrada * (1 + taxa_corretagem)
+    preco_saida_total = preco_saida * (1 - taxa_corretagem)
+    retorno_pct = (preco_saida_total - preco_entrada_total) / preco_entrada_total
+    lucro = valor_investido * retorno_pct
 
-#     timestamp_entrada = df_candles.iloc[0]["timestamp"]
-#     timestamp_saida = row["timestamp"]
-#     tempo_operacao = timestamp_saida - timestamp_entrada
-#     tempo_em_minutos = tempo_operacao.total_seconds() / 60
+    timestamp_entrada = df_candles.iloc[0]["timestamp"]
+    timestamp_saida = row["timestamp"]
+    tempo_operacao = timestamp_saida - timestamp_entrada
+    tempo_em_minutos = tempo_operacao.total_seconds() / 60
 
-#     resumo = "gain" if preco_saida >= stop_gain_price else "loss" if preco_saida <= stop_loss_price else "neutro"
+    resumo = "gain" if preco_saida >= stop_gain_price else "loss" if preco_saida <= stop_loss_price else "neutro"
 
-#     return lucro, retorno_pct, i, tempo_em_minutos, resumo
+    return lucro, retorno_pct, i, tempo_em_minutos, resumo
 
 def gerando_predição_tempo_real(result,  modelo = None,):
     """
@@ -529,7 +533,7 @@ def simular_compra_tempo_real(cripto,
     preco_break_even = preco_entrada
     atingiu_break_even = False
 
-    inicio_operacao = datetime.now()
+    inicio_operacao = datetime.datetime.now()
     indice_minuto = 0
 
     if verbose:
@@ -549,41 +553,52 @@ def simular_compra_tempo_real(cripto,
     
     while True:
         preco_atual = get_preco_atual()
-
-        if preco_atual is None:
+        preco_atual = ast.literal_eval(preco_atual.split(": ", 1)[1])
+        if preco_atual is not None:
+            if isinstance(preco_atual, dict):
+                # Caso seja um dicionário, extraia o preço
+                preco_str = preco_atual.get('price')  # Usar .get() para evitar KeyError
+                if preco_str is not None:
+                    preco_float = float(preco_str)
+                else:
+                    raise ValueError("A chave 'price' não existe no dicionário.")
+            else:
+                # Caso seja uma string, converta diretamente
+                preco_float = float(preco_atual)
+        else:
             if verbose:
-                print(f"[{datetime.now()}] Preço indisponível. Aguardando 30 segundos...")
+                print(f"[{datetime.datetime.now()}] Preço indisponível. Aguardando 30 segundos...")
             time.sleep(30)
             continue
-
+        
         if verbose:
-            print(f"[{datetime.now()}] Minuto {indice_minuto} - Preço atual: {preco_atual:.2f}")
+            print(f"[{datetime.datetime.now()}] Minuto {indice_minuto} - Preço atual: {preco_float:.2f}")
             print(f"Preço stop atual: {preco_stop:.2f} | Topo: {trailing_topo:.2f}")
 
         # Verifica Stop Loss
-        if preco_atual <= preco_stop:
+        if preco_float <= preco_stop:
             resultado = "Stop Loss"
             if verbose:
-                print(f"[{datetime.now()}] Stop Loss acionado a {preco_atual:.2f}")
+                print(f"[{datetime.datetime.now()}] Stop Loss acionado a {preco_float:.2f}")
             break
 
         # Verifica Stop Gain
-        if preco_atual >= preco_alvo:
+        if preco_float >= preco_alvo:
             resultado = "Stop Gain"
             if verbose:
-                print(f"[{datetime.now()}] Stop Gain acionado a {preco_atual:.2f}")
+                print(f"[{datetime.datetime.now()}] Stop Gain acionado a {preco_float:.2f}")
             break
 
         # Verifica Break Even
         if usar_break_even and not atingiu_break_even:
-            if preco_atual >= preco_entrada * (1 + break_even_trigger):
+            if preco_float >= preco_entrada * (1 + break_even_trigger):
                 preco_stop = preco_break_even
                 atingiu_break_even = True
                 if verbose:
                     print(f"[{datetime.now()}] Break-even ativado. Novo stop: {preco_stop:.2f}")
         # Verifica Trailing Stop
-        if usar_trailing_stop and preco_atual > trailing_topo:
-            trailing_topo = preco_atual
+        if usar_trailing_stop and preco_float > trailing_topo:
+            trailing_topo = preco_float
             preco_stop = trailing_topo * (1 - trailing_percentual)
             if verbose:
                 print(f"[{datetime.now()}] Novo topo: {trailing_topo:.2f} | Novo stop (trailing): {preco_stop:.2f}")
@@ -592,14 +607,79 @@ def simular_compra_tempo_real(cripto,
         indice_minuto += 1
 
     # Cálculo do resultado
-    preco_saida = preco_atual
+    preco_saida = preco_float
     valor_final = preco_saida * quantidade
     lucro_bruto = valor_final - valor_investido
     custo_corretagem = valor_investido * taxa_corretagem + valor_final * taxa_corretagem
     lucro_liquido = lucro_bruto - custo_corretagem
     retorno_percentual = lucro_liquido / valor_investido
-    duracao = datetime.now() - inicio_operacao
+    duracao = datetime.datetime.now() - inicio_operacao
 
     resumo = f"{resultado} atingido após {indice_minuto} minutos. Lucro líquido: ${lucro_liquido:.2f} ({retorno_percentual:.2%})"
 
     return lucro_liquido, retorno_percentual, indice_minuto, duracao
+
+def calcular_acertividade_modelo():
+    """
+    Função para calcular a acertividade do modelo.
+    """
+    # Obtém o caminho absoluto do diretório do script atual
+    diretorio_atual = os.path.dirname(os.path.abspath(__file__))
+    
+    # Define o caminho raiz corretamente (ex: ../bot_mcp/outputs/data)
+    raiz = os.path.abspath(os.path.join(diretorio_atual, '..', 'outputs', 'data'))
+    
+    # Verifica se o caminho existe
+    if not os.path.exists(raiz):
+        raise FileNotFoundError(f"Diretório não encontrado: {raiz}")
+
+    # Pastas de interesse
+    pastas_desejadas = {"analise 04-29", "analise 04-30", "analise 05-01", "analise 05-02"}
+
+    # Coluna que representa o lucro
+    coluna_lucro = 'lucro_prejuizo'  # ajuste se necessário
+
+    # Lista para armazenar os resultados
+    resultados = []
+
+    # Percorre as pastas de interesse
+    for pasta in os.listdir(raiz):
+        if pasta in pastas_desejadas:
+            caminho_analise = os.path.join(raiz, pasta)
+
+            for subpasta_raiz, _, arquivos in os.walk(caminho_analise):
+                for arquivo in arquivos:
+                    if arquivo.endswith('.csv'):
+                        print
+                        caminho_csv = os.path.join(subpasta_raiz, arquivo)
+
+                        try:
+                            df = pd.read_csv(caminho_csv)
+
+                            if coluna_lucro not in df.columns:
+                                print(f"[{arquivo}] Coluna '{coluna_lucro}' não encontrada.")
+                                continue
+
+                            total_predicoes = len(df)
+                            predicoes_positivas = df[df[coluna_lucro] > 0].shape[0]
+                            lucro_total = df[coluna_lucro].sum()
+
+                            nome_modelo = os.path.splitext(arquivo)[0].replace('resultados_trades_', '')
+
+                            resultados.append({
+                                'modelo': nome_modelo,
+                                'arquivo': arquivo,
+                                'total_predicoes': total_predicoes,
+                                'predicoes_positivas': predicoes_positivas,
+                                'lucro_total': lucro_total
+                            })
+
+                        except Exception as e:
+                            print(f"Erro ao processar {caminho_csv}: {e}")
+
+    # Cria DataFrame com os resultados
+    df_resultados = pd.DataFrame(resultados)
+
+    # Salva o resultado consolidado em CSV e XLSX
+    df_resultados.to_csv('relatorio_resultados_modelos.csv', index=False)
+
