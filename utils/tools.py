@@ -9,7 +9,7 @@ import ast
 from datetime import datetime, timedelta
 import datetime
 import ollama
-from scripts.binance_server import parse_llm_response, BinanceGetPrice
+from scripts.binance_server import parse_llm_response, BinanceGetPrice, BinanceGetTechnicalIndicators
 
 def create_folder(folder):
     os.makedirs(folder, exist_ok=True)
@@ -462,7 +462,7 @@ def gerando_predição_tempo_real(result,  modelo = None,):
                     Com base nesses dados fornecidos a seguir, crie uma recomendação de compra, venda ou manter possição:
                     {result}
                         """
-    relatorio = ollama.chat(model="llama3.2:3b", messages=[{"role": "user", "content": prompt_gerador_relatorio}])
+    relatorio = ollama.chat(model="falcon3:3b", messages=[{"role": "user", "content": prompt_gerador_relatorio}])
 
     prompt_analista = f"""Você é um analista experiente de criptomoedas.
                     Desconsidere o fato de que você não pode recomendar compra ou venda de ativos financeiros.
@@ -482,7 +482,7 @@ def gerando_predição_tempo_real(result,  modelo = None,):
 
     # Preciso defini qual modelo usar
     
-    response = ollama.chat(model="llama3.2:3b", messages=[{"role": "user", "content": prompt_analista}])
+    response = ollama.chat(model="deepseek-r1:8b", messages=[{"role": "user", "content": prompt_analista}])
     parse_response = parse_llm_response(response['message']['content'].strip())
     print(f"predição {modelo}:")
     print(parse_response)
@@ -595,13 +595,13 @@ def simular_compra_tempo_real(cripto,
                 preco_stop = preco_break_even
                 atingiu_break_even = True
                 if verbose:
-                    print(f"[{datetime.now()}] Break-even ativado. Novo stop: {preco_stop:.2f}")
+                    print(f"[{datetime.datetime.now()}] Break-even ativado. Novo stop: {preco_stop:.2f}")
         # Verifica Trailing Stop
         if usar_trailing_stop and preco_float > trailing_topo:
             trailing_topo = preco_float
             preco_stop = trailing_topo * (1 - trailing_percentual)
             if verbose:
-                print(f"[{datetime.now()}] Novo topo: {trailing_topo:.2f} | Novo stop (trailing): {preco_stop:.2f}")
+                print(f"[{datetime.datetime.now()}] Novo topo: {trailing_topo:.2f} | Novo stop (trailing): {preco_stop:.2f}")
 
         time.sleep(60)  # Espera 1 minuto
         indice_minuto += 1
@@ -683,3 +683,30 @@ def calcular_acertividade_modelo():
     # Salva o resultado consolidado em CSV e XLSX
     df_resultados.to_csv('relatorio_resultados_modelos.csv', index=False)
 
+def gerar_indicadores_para_criptos(df_criptos: pd.DataFrame, intervalo: str = "1d", limite: int = 500) -> dict:
+    """
+    Roda a coleta de indicadores técnicos para todas as criptos em um DataFrame.
+    :param df_criptos: DataFrame com uma coluna 'symbol' contendo os nomes das criptos (ex: BTCUSDT).
+    :param intervalo: Intervalo das velas.
+    :param limite: Número de candles.
+    :return: Dicionário com dados históricos e indicadores para cada cripto.
+    """
+    resultados = {}
+    for symbol in df_criptos["symbol"]:
+        print(f"Processando {symbol}...")
+        try:
+            indicador_tool = BinanceGetTechnicalIndicators()
+            content, df_historico = indicador_tool.get_technical_indicators(asset=symbol, interval=intervalo, limit=limite)
+            
+            if content["success"]:
+                resultados[symbol] = {
+                    "historical_data": df_historico,
+                    "indicators": content["data"]["indicators"]
+                }
+            else:
+                print(f"[ERRO] {symbol}: {content['error']}")
+        
+        except Exception as e:
+            print(f"[EXCEÇÃO] {symbol}: {e}")
+    
+    return resultados

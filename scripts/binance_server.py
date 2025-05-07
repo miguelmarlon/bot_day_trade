@@ -262,7 +262,73 @@ class BinanceGetTechnicalIndicators(BaseTool):
         mfi = 100 - (100 / (1 + (positive_flow / negative_flow)))
         return mfi.tolist()
 
-    def get_technical_indicators(self, asset: str, interval: str = "1d", limit: int = 500) -> dict:
+    def calculate_stochastic(self, data: pd.DataFrame, k_period=14, d_period=3):
+        """
+        Calcula o Oscilador Estocástico (%K e %D).
+
+        Parâmetros:
+            df (DataFrame): deve conter as colunas 'high', 'low', 'close'
+            k_period (int): período para cálculo de %K (default: 14)
+            d_period (int): período da média móvel de %K para obter %D (default: 3)
+
+        Retorna:
+            DataFrame com colunas 'stochastic_k' e 'stochastic_d'
+        """
+         # Garantir que o período de cálculo seja válido
+        if k_period < 1 or d_period < 1:
+            raise ValueError("Os períodos k_period e d_period devem ser maiores que 0.")
+        
+        # Calculando o menor low e o maior high para o período K
+        lowest_low = data['Low'].rolling(window=k_period).min()
+        highest_high = data['High'].rolling(window=k_period).max()
+
+        # Prevenindo divisão por zero ao calcular %K
+        stochastic_k = 100 * ((data['Close'] - lowest_low) / (highest_high - lowest_low))
+
+        # Tratamento para evitar divisão por zero gerando NaN
+        stochastic_k = stochastic_k.fillna(0)
+
+        # Calculando %D (média móvel de %K)
+        stochastic_d = stochastic_k.rolling(window=d_period).mean()
+
+        # Adicionando as colunas calculadas ao DataFrame
+        data['stochastic_k'] = stochastic_k
+        data['stochastic_d'] = stochastic_d
+        
+        return data[['stochastic_k', 'stochastic_d']]
+
+    def calcular_pivot_points_em_coluna(self, data: pd.DataFrame):
+        """
+        Calcula os Pivot Points e salva em uma única coluna chamada 'pivot'.
+        
+        Parâmetros:
+            df (DataFrame): deve conter as colunas 'high', 'low', 'close'
+
+        Retorna:
+            DataFrame com uma coluna 'pivot' contendo os valores calculados em formato de dicionário.
+        """
+        pivot = (data['High'] + data['Low'] + data['Close']) / 3
+        data['pivot'] = pivot
+        data['r1'] = (2 * pivot) - data['Low']
+        data['s1'] = (2 * pivot) - data['High']
+        data['r2'] = pivot + (data['High'] - data['Low'])
+        data['s2'] = pivot - (data['High'] - data['Low'])
+        data['r3'] = data['High'] + 2 * (pivot - data['Low'])
+        data['s3'] = data['Low'] - 2 * (data['High'] - pivot)
+        
+        # Salvando todos os valores em uma coluna chamada 'pivot' como um dicionário
+        data['pivot_points'] = data.apply(lambda row: {
+            'pivot': row['pivot'],
+            'r1': row['r1'],
+            's1': row['s1'],
+            'r2': row['r2'],
+            's2': row['s2'],
+            'r3': row['r3'],
+            's3': row['s3']
+        }, axis=1)
+        return data
+    
+    def get_technical_indicators(self, asset: str, interval: str = "1d", limit: int = 70) -> dict:
         """Obtém o preço de uma criptomoeda específica."""
         valid_intervals = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"]
     
@@ -284,6 +350,9 @@ class BinanceGetTechnicalIndicators(BaseTool):
             mfi = self.calculate_mfi(data)
             fibonacci = self.calculate_fibonacci_retracement(data)
             bollinger_bands = self.calculate_bollinger_bands(data)
+            stochastic = self.calculate_stochastic(data)
+            pivot_points = self.calcular_pivot_points_em_coluna(data)
+
             result = {
             "success": True,
             "data": {
@@ -298,6 +367,10 @@ class BinanceGetTechnicalIndicators(BaseTool):
                     "adx": adx,
                     "mfi": mfi,
                     "fibonacci": fibonacci,
+                    "bollinger_bands": bollinger_bands,
+                    "fibonacci_retracement": fibonacci,
+                    "stochastic": stochastic,
+                    "pivot_points": pivot_points
                     },
                 },
             }
@@ -313,26 +386,86 @@ class BinanceGetTechnicalIndicators(BaseTool):
         :param interval: Intervalo das velas (ex.: 1m, 1h, 1d).
         :return: String com os resultados ou mensagem de erro.
         """
-        content, data = self.get_technical_indicators(asset=cripto_name, interval=interval)
-        if isinstance(content, str): 
-            content = json.loads(content)
-
-        if content["success"]:
-            indicators = content["data"]["indicators"]
-            return (
-                f"Indicadores técnicos para {cripto_name} ({interval}):\n"
-                f"- SMA_50: {indicators['sma_50'][-1]:.2f}\n"
-                f"- SMA_200: {indicators['sma_200'][-1]:.2f}\n"
-                f"- EMA_20: {indicators['ema_20'][-1]:.2f}\n"
-                f"- EMA_50: {indicators['ema_50'][-1]:.2f}\n"
-                f"- RSI: {indicators['rsi'][-1]:.2f}\n"
-                f"- MACD: {indicators['macd']['histogram'][-1]:.2f}\n"
-                f"- ADX: {indicators['adx'][-1]:.2f}\n"
-                f"- MFI: {indicators['mfi'][-1]:.2f}\n"
-                f"- Fibonacci Retracement: {indicators['fibonacci']}"
-            ), data
+        valid_intervals = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"]
+        if interval not in valid_intervals:
+            return f"Intervalo inválido. Escolha entre: {', '.join(valid_intervals)}"
         else:
-            return f"Erro ao buscar indicadores para {cripto_name}: {content['error']}"
+            content, _ = self.get_technical_indicators(asset=cripto_name, interval=interval)
+            if not content["success"]:
+                return f"Erro: {content['error']}"
+            
+            indicators = content["data"]["indicators"]
+            response = f"Indicadores técnicos para {cripto_name}:\n"
+            for key, value in indicators.items():
+                if isinstance(value, dict):
+                    response += f"\n{key}:\n"
+                    for subkey, subvalue in value.items():
+                        response += f"  {subkey}: {subvalue[-1] if subvalue else 'N/A'}\n"
+                else:
+                    response += f"{key}: {value[-1] if value else 'N/A'}\n"
+            return response
+    
+class BinanceListCryptosByPrice(BaseTool):
+    name: str = "BinanceListCryptosByPrice"
+    description: str = "Lista todas as criptomoedas com par USDT abaixo de um valor específico."
+    api_key: str = Field(default=None)
+    secret_key: str = Field(default=None)
+    client: Any = Field(default=None)
+    max_price: float = Field(default=2.0)
+
+    def __init__(self, max_price: float = 2.0, **kwargs):
+        super().__init__(**kwargs)
+
+        self.api_key = os.getenv("BINANCE_API_KEY")
+        self.secret_key = os.getenv("BINANCE_SECRET_KEY")
+        if not self.api_key or not self.secret_key:
+            raise ValueError("As chaves da API da Binance não foram fornecidas.")
+        self.client = Client(self.api_key, self.secret_key)
+
+        self.max_price = max_price
+        content = self.get_cryptos_by_price()
+        self.add(content)
+
+    def get_cryptos_by_price(self) -> dict:
+        """Retorna uma lista de criptos negociadas em USDT com preço abaixo do limite especificado."""
+        try:
+            tickers = self.client.get_all_tickers()
+            filtered = []
+
+            for ticker in tickers:
+                symbol = ticker["symbol"]
+                if symbol.endswith("USDT"):
+                    try:
+                        price = float(ticker["price"])
+                        if price <= self.max_price:
+                            filtered.append({"symbol": symbol, "price": price})
+                    except ValueError:
+                        continue
+            return pd.DataFrame(filtered)
+        except BinanceAPIException as e:
+            return {"success": False, "error": str(e)}
+
+    def add(self, content: dict) -> None:
+        """Adiciona os dados ao sistema."""
+        if isinstance(content, pd.DataFrame):
+            df = content
+        elif isinstance(content, dict) and content.get("success"):
+            df = pd.DataFrame(content["cryptos"])
+        else:
+            print("Erro: dados inválidos ou vazios.")
+            return
+
+        if df.empty:
+            print(f"Nenhuma cripto encontrada abaixo de ${self.max_price}")
+        
+        
+    def _run(self, max_price: Optional[float] = None) -> str:
+        """Executa a listagem das criptomoedas abaixo do valor máximo especificado."""
+        if max_price is not None:
+            self.max_price = max_price
+        
+        df = self.get_cryptos_by_price()
+        return df
 
 def parse_llm_response(response):
 
@@ -411,6 +544,10 @@ def parse_llm_response(response):
 ##############################################################################################
 #testes das tools
 ###############################################################################################
+# tool = BinanceListCryptosByPrice(max_price=0.3)
+# result = tool._run()
+# print(result)
+
 # tool = BinanceGetBalance()
 # result = tool._run("XRP")
 # print(result)
