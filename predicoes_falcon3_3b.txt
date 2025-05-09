@@ -1,0 +1,375 @@
+Predição do modelo: falcon3:3b para o ativo: BCCUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:05:51.5131067Z' done=True done_reason='stop' total_duration=2836073500 load_duration=2452221500 prompt_eval_count=839 prompt_eval_duration=316024200 eval_count=7 eval_duration=65926700 message=Message(role='assistant', content='        nota: 58', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: VENUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:06:20.3838564Z' done=True done_reason='stop' total_duration=289372800 load_duration=15196900 prompt_eval_count=806 prompt_eval_duration=134612500 eval_count=7 eval_duration=139048300 message=Message(role='assistant', content='        nota: 25', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: PAXUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:06:38.6729263Z' done=True done_reason='stop' total_duration=304980500 load_duration=11806300 prompt_eval_count=940 prompt_eval_duration=141626800 eval_count=7 eval_duration=150527000 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: BCHABCUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:06:55.927137Z' done=True done_reason='stop' total_duration=306127900 load_duration=10753900 prompt_eval_count=913 prompt_eval_duration=131733900 eval_count=7 eval_duration=163640100 message=Message(role='assistant', content='        nota: 45', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: BCHSVUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:07:13.4003997Z' done=True done_reason='stop' total_duration=295864300 load_duration=11283700 prompt_eval_count=881 prompt_eval_duration=132529400 eval_count=7 eval_duration=151536700 message=Message(role='assistant', content='        nota: 37', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: BTTUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:07:28.372943Z' done=True done_reason='stop' total_duration=313031800 load_duration=11376700 prompt_eval_count=945 prompt_eval_duration=135266900 eval_count=7 eval_duration=165876600 message=Message(role='assistant', content='        nota: 60', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: USDSUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:07:42.3159065Z' done=True done_reason='stop' total_duration=525836300 load_duration=12474500 prompt_eval_count=920 prompt_eval_duration=213850100 eval_count=8 eval_duration=298999200 message=Message(role='assistant', content='        Nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: NANOUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:08:07.7091466Z' done=True done_reason='stop' total_duration=456189600 load_duration=14192900 prompt_eval_count=894 prompt_eval_duration=201662400 eval_count=7 eval_duration=239823400 message=Message(role='assistant', content='        nota: 35', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: USDSBUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:08:32.7306253Z' done=True done_reason='stop' total_duration=459863600 load_duration=18532900 prompt_eval_count=874 prompt_eval_duration=198822700 eval_count=8 eval_duration=242508000 message=Message(role='assistant', content='        Nota: 52', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: ERDUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:08:58.9005228Z' done=True done_reason='stop' total_duration=463908700 load_duration=16106300 prompt_eval_count=969 prompt_eval_duration=189921600 eval_count=7 eval_duration=257880800 message=Message(role='assistant', content='        nota: 57', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: WINUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:09:19.213238Z' done=True done_reason='stop' total_duration=456823000 load_duration=18784800 prompt_eval_count=1015 prompt_eval_duration=172061600 eval_count=8 eval_duration=265976600 message=Message(role='assistant', content='        Nota: 45', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: NPXSUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:09:40.8627407Z' done=True done_reason='stop' total_duration=457796600 load_duration=13868700 prompt_eval_count=1009 prompt_eval_duration=182949700 eval_count=7 eval_duration=260466500 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: STORMUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:10:11.0172429Z' done=True done_reason='stop' total_duration=440113800 load_duration=15250800 prompt_eval_count=995 prompt_eval_duration=185538000 eval_count=7 eval_duration=239325000 message=Message(role='assistant', content='        nota: 75', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: HCUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:10:44.6341855Z' done=True done_reason='stop' total_duration=440203100 load_duration=16951000 prompt_eval_count=912 prompt_eval_duration=183168600 eval_count=8 eval_duration=240083500 message=Message(role='assistant', content='        Nota: 35', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: MCOUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:11:07.5533046Z' done=True done_reason='stop' total_duration=425026300 load_duration=14748700 prompt_eval_count=899 prompt_eval_duration=189349900 eval_count=7 eval_duration=220415300 message=Message(role='assistant', content='        nota: 75', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: TROYUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:11:38.8775054Z' done=True done_reason='stop' total_duration=493022900 load_duration=16307700 prompt_eval_count=1026 prompt_eval_duration=198609900 eval_count=7 eval_duration=277594000 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: BULLUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:12:08.7432183Z' done=True done_reason='stop' total_duration=430961900 load_duration=16709100 prompt_eval_count=916 prompt_eval_duration=188897300 eval_count=7 eval_duration=224841700 message=Message(role='assistant', content='        nota: 75', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: BEARUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:12:40.4865678Z' done=True done_reason='stop' total_duration=430747600 load_duration=14005600 prompt_eval_count=904 prompt_eval_duration=189153100 eval_count=7 eval_duration=227588900 message=Message(role='assistant', content='        nota: 35', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: ETHBULLUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:13:06.2283123Z' done=True done_reason='stop' total_duration=425892400 load_duration=13498300 prompt_eval_count=815 prompt_eval_duration=198604400 eval_count=7 eval_duration=213255800 message=Message(role='assistant', content='        nota: 45', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: ETHBEARUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:13:37.2069981Z' done=True done_reason='stop' total_duration=434550400 load_duration=14594300 prompt_eval_count=913 prompt_eval_duration=182322100 eval_count=8 eval_duration=237634000 message=Message(role='assistant', content='        Nota: 30', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: EOSBULLUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:13:52.1903327Z' done=True done_reason='stop' total_duration=423000400 load_duration=15238800 prompt_eval_count=872 prompt_eval_duration=190803000 eval_count=7 eval_duration=216443800 message=Message(role='assistant', content='        nota: 35', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: EOSBEARUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:14:05.2818565Z' done=True done_reason='stop' total_duration=430870300 load_duration=14211100 prompt_eval_count=851 prompt_eval_duration=192803600 eval_count=7 eval_duration=223855600 message=Message(role='assistant', content='        nota: 30', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: XRPBULLUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:14:34.0486286Z' done=True done_reason='stop' total_duration=444915300 load_duration=13534600 prompt_eval_count=880 prompt_eval_duration=192936400 eval_count=8 eval_duration=238444300 message=Message(role='assistant', content='        Nota: 72', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: XRPBEARUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:15:02.1098676Z' done=True done_reason='stop' total_duration=422836400 load_duration=11880000 prompt_eval_count=853 prompt_eval_duration=194530600 eval_count=7 eval_duration=215913800 message=Message(role='assistant', content='        nota: 45', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: STRATUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:15:31.6180005Z' done=True done_reason='stop' total_duration=495113800 load_duration=17786400 prompt_eval_count=911 prompt_eval_duration=208348600 eval_count=8 eval_duration=268448300 message=Message(role='assistant', content='        Nota: 45', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: BNBBULLUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:15:53.2647853Z' done=True done_reason='stop' total_duration=471448200 load_duration=14000000 prompt_eval_count=863 prompt_eval_duration=208868800 eval_count=7 eval_duration=248062200 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: BNBBEARUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:16:17.2178258Z' done=True done_reason='stop' total_duration=420625300 load_duration=13324800 prompt_eval_count=872 prompt_eval_duration=189805800 eval_count=7 eval_duration=217494700 message=Message(role='assistant', content='        nota: 20', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: XZCUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:16:46.0648861Z' done=True done_reason='stop' total_duration=452724400 load_duration=15049300 prompt_eval_count=898 prompt_eval_duration=198344100 eval_count=7 eval_duration=239331000 message=Message(role='assistant', content='        nota: 60', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: GXSUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:17:12.9473317Z' done=True done_reason='stop' total_duration=421302400 load_duration=14278600 prompt_eval_count=869 prompt_eval_duration=198402100 eval_count=7 eval_duration=207600400 message=Message(role='assistant', content='        nota: 75', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: LENDUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:17:38.0251135Z' done=True done_reason='stop' total_duration=439151800 load_duration=14820700 prompt_eval_count=927 prompt_eval_duration=183370000 eval_count=7 eval_duration=240446600 message=Message(role='assistant', content='        nota: 45', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: BKRWUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:17:58.1962679Z' done=True done_reason='stop' total_duration=476808600 load_duration=16490000 prompt_eval_count=965 prompt_eval_duration=201604800 eval_count=7 eval_duration=258713800 message=Message(role='assistant', content='        nota: 75', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: DAIUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:18:23.5583767Z' done=True done_reason='stop' total_duration=437760500 load_duration=14950500 prompt_eval_count=899 prompt_eval_duration=186934400 eval_count=7 eval_duration=235875600 message=Message(role='assistant', content='        nota: 30', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: XTZUPUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:18:54.8585374Z' done=True done_reason='stop' total_duration=474174600 load_duration=14825400 prompt_eval_count=975 prompt_eval_duration=193696000 eval_count=7 eval_duration=265142700 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: XTZDOWNUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:19:27.1598658Z' done=True done_reason='stop' total_duration=419447600 load_duration=13701200 prompt_eval_count=868 prompt_eval_duration=187318900 eval_count=7 eval_duration=217905300 message=Message(role='assistant', content='        nota: 75', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: BZRXUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:20:16.3920936Z' done=True done_reason='stop' total_duration=443292500 load_duration=13477900 prompt_eval_count=912 prompt_eval_duration=192997000 eval_count=7 eval_duration=236306600 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: EOSUPUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:20:41.2170629Z' done=True done_reason='stop' total_duration=453328900 load_duration=12354500 prompt_eval_count=943 prompt_eval_duration=187914800 eval_count=8 eval_duration=252552500 message=Message(role='assistant', content='        Nota: 45', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: EOSDOWNUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:21:09.2395487Z' done=True done_reason='stop' total_duration=506444100 load_duration=13613300 prompt_eval_count=985 prompt_eval_duration=205654400 eval_count=8 eval_duration=286668300 message=Message(role='assistant', content='        Nota: 30', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: XRPDOWNUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:21:35.982563Z' done=True done_reason='stop' total_duration=472207000 load_duration=13331300 prompt_eval_count=1019 prompt_eval_duration=190117000 eval_count=7 eval_duration=268758700 message=Message(role='assistant', content='        nota: 85', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: LTCUPUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:22:09.6932775Z' done=True done_reason='stop' total_duration=468443300 load_duration=13805100 prompt_eval_count=908 prompt_eval_duration=191988600 eval_count=8 eval_duration=261123800 message=Message(role='assistant', content='        Nota: 30', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: LTCDOWNUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:22:41.6029925Z' done=True done_reason='stop' total_duration=435906700 load_duration=16386000 prompt_eval_count=886 prompt_eval_duration=194851600 eval_count=7 eval_duration=224155200 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: UNIUPUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:23:16.610648Z' done=True done_reason='stop' total_duration=476587400 load_duration=13873800 prompt_eval_count=917 prompt_eval_duration=193451900 eval_count=8 eval_duration=268747200 message=Message(role='assistant', content='        Nota: 45', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: UNIDOWNUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:23:45.2154281Z' done=True done_reason='stop' total_duration=434046900 load_duration=15303400 prompt_eval_count=872 prompt_eval_duration=184104700 eval_count=8 eval_duration=234126400 message=Message(role='assistant', content='        Nota: 52', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: SXPUPUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:24:03.1072772Z' done=True done_reason='stop' total_duration=491017000 load_duration=13037100 prompt_eval_count=976 prompt_eval_duration=198688400 eval_count=8 eval_duration=279291500 message=Message(role='assistant', content='        Nota: 45', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: SXPDOWNUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:24:44.2032779Z' done=True done_reason='stop' total_duration=435668700 load_duration=12784900 prompt_eval_count=922 prompt_eval_duration=187197100 eval_count=7 eval_duration=235175900 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: FILUPUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:25:10.9101609Z' done=True done_reason='stop' total_duration=438367600 load_duration=15176900 prompt_eval_count=928 prompt_eval_duration=193390800 eval_count=7 eval_duration=229199700 message=Message(role='assistant', content='        nota: 75', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: FILDOWNUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:25:38.054842Z' done=True done_reason='stop' total_duration=455469200 load_duration=16123500 prompt_eval_count=961 prompt_eval_duration=189608000 eval_count=7 eval_duration=249211500 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: YFIUPUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:26:12.6892987Z' done=True done_reason='stop' total_duration=433706700 load_duration=14942900 prompt_eval_count=927 prompt_eval_duration=176082200 eval_count=8 eval_duration=242681600 message=Message(role='assistant', content='        Nota: 30', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: YFIDOWNUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:26:47.4963456Z' done=True done_reason='stop' total_duration=444441200 load_duration=13700100 prompt_eval_count=880 prompt_eval_duration=198916700 eval_count=7 eval_duration=231307900 message=Message(role='assistant', content='        nota: 75', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: BCHUPUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:27:14.2884128Z' done=True done_reason='stop' total_duration=483296400 load_duration=15280700 prompt_eval_count=958 prompt_eval_duration=199316300 eval_count=7 eval_duration=268184700 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: BCHDOWNUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:27:33.1540622Z' done=True done_reason='stop' total_duration=463756200 load_duration=13618700 prompt_eval_count=927 prompt_eval_duration=194151000 eval_count=7 eval_duration=255476100 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: AAVEUPUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:28:00.8681343Z' done=True done_reason='stop' total_duration=429127300 load_duration=15231400 prompt_eval_count=918 prompt_eval_duration=182775400 eval_count=7 eval_duration=230609100 message=Message(role='assistant', content='        nota: 25', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: AAVEDOWNUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:28:33.5189975Z' done=True done_reason='stop' total_duration=463350300 load_duration=13603500 prompt_eval_count=974 prompt_eval_duration=194650900 eval_count=7 eval_duration=255095900 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: SUSDUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:29:00.3421473Z' done=True done_reason='stop' total_duration=449161100 load_duration=14167100 prompt_eval_count=907 prompt_eval_duration=198063500 eval_count=7 eval_duration=236418200 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: SUSHIUPUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:29:18.2290577Z' done=True done_reason='stop' total_duration=455480400 load_duration=13482100 prompt_eval_count=972 prompt_eval_duration=183221000 eval_count=7 eval_duration=258262000 message=Message(role='assistant', content='        nota: 60', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: SUSHIDOWNUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:29:48.208496Z' done=True done_reason='stop' total_duration=452609700 load_duration=13787400 prompt_eval_count=912 prompt_eval_duration=187589100 eval_count=7 eval_duration=251233200 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: XLMUPUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:30:26.7994526Z' done=True done_reason='stop' total_duration=441363600 load_duration=13915000 prompt_eval_count=917 prompt_eval_duration=187299400 eval_count=8 eval_duration=239638100 message=Message(role='assistant', content='       Nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: XLMDOWNUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:30:40.5019613Z' done=True done_reason='stop' total_duration=459131000 load_duration=27195400 prompt_eval_count=910 prompt_eval_duration=188107400 eval_count=7 eval_duration=243318000 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: RAMPUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:31:16.2988241Z' done=True done_reason='stop' total_duration=404226100 load_duration=16434800 prompt_eval_count=886 prompt_eval_duration=182594400 eval_count=7 eval_duration=204684700 message=Message(role='assistant', content='        nota: 75', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: EPSUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:31:42.8384279Z' done=True done_reason='stop' total_duration=436293600 load_duration=13595100 prompt_eval_count=940 prompt_eval_duration=192384600 eval_count=7 eval_duration=230313900 message=Message(role='assistant', content='        nota: 45', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: 1INCHUPUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:32:23.7590508Z' done=True done_reason='stop' total_duration=451787300 load_duration=14793400 prompt_eval_count=961 prompt_eval_duration=190189500 eval_count=7 eval_duration=246291400 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: 1INCHDOWNUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:32:57.0894023Z' done=True done_reason='stop' total_duration=453375700 load_duration=14071900 prompt_eval_count=987 prompt_eval_duration=182960800 eval_count=7 eval_duration=255829000 message=Message(role='assistant', content='        nota: 72', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: SHIBUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:33:18.1906204Z' done=True done_reason='stop' total_duration=462851200 load_duration=16375900 prompt_eval_count=964 prompt_eval_duration=193623900 eval_count=7 eval_duration=252340300 message=Message(role='assistant', content='        nota: 45', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: NUUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:33:44.4335849Z' done=True done_reason='stop' total_duration=418355100 load_duration=13059100 prompt_eval_count=827 prompt_eval_duration=197623500 eval_count=7 eval_duration=207159300 message=Message(role='assistant', content='        nota: 57', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: KEEPUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:34:30.6050894Z' done=True done_reason='stop' total_duration=422179900 load_duration=14208100 prompt_eval_count=872 prompt_eval_duration=186294000 eval_count=7 eval_duration=221164700 message=Message(role='assistant', content='        nota: 56', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: XECUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:35:00.4993904Z' done=True done_reason='stop' total_duration=458014200 load_duration=14731000 prompt_eval_count=1030 prompt_eval_duration=171296400 eval_count=8 eval_duration=271472900 message=Message(role='assistant', content='        Nota: 55', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: RGTUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:35:27.6244104Z' done=True done_reason='stop' total_duration=427413100 load_duration=13918500 prompt_eval_count=882 prompt_eval_duration=190795500 eval_count=7 eval_duration=222190200 message=Message(role='assistant', content='        nota: 25', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: ANYUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:36:03.0252646Z' done=True done_reason='stop' total_duration=428742900 load_duration=13103600 prompt_eval_count=878 prompt_eval_duration=192607000 eval_count=8 eval_duration=222517900 message=Message(role='assistant', content='       Nota: 75', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: USTUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:36:26.3527897Z' done=True done_reason='stop' total_duration=430285800 load_duration=14039800 prompt_eval_count=937 prompt_eval_duration=181379500 eval_count=7 eval_duration=234300700 message=Message(role='assistant', content='        nota: 30', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: BTTCUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:36:56.4384194Z' done=True done_reason='stop' total_duration=448483000 load_duration=13270400 prompt_eval_count=995 prompt_eval_duration=186443900 eval_count=7 eval_duration=248768700 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: EPXUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:37:23.9976055Z' done=True done_reason='stop' total_duration=483501800 load_duration=14361000 prompt_eval_count=1028 prompt_eval_duration=197180700 eval_count=7 eval_duration=271960100 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: LUNCUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:37:54.9573412Z' done=True done_reason='stop' total_duration=477914600 load_duration=14053800 prompt_eval_count=1027 prompt_eval_duration=191170100 eval_count=7 eval_duration=272178400 message=Message(role='assistant', content='        nota: 45', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: PEPEUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:38:21.3807692Z' done=True done_reason='stop' total_duration=447104500 load_duration=13683600 prompt_eval_count=1003 prompt_eval_duration=184739000 eval_count=7 eval_duration=248681900 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: FLOKIUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:38:47.4929706Z' done=True done_reason='stop' total_duration=418424600 load_duration=13383800 prompt_eval_count=1008 prompt_eval_duration=171563100 eval_count=7 eval_duration=232326700 message=Message(role='assistant', content='       nota: 75', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: 1000SATSUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:39:14.2262658Z' done=True done_reason='stop' total_duration=479928100 load_duration=14152000 prompt_eval_count=982 prompt_eval_duration=192799300 eval_count=7 eval_duration=272976800 message=Message(role='assistant', content='        nota: 45', images=None, tool_calls=None)
+#########################################################################
+
+Predição do modelo: falcon3:3b para o ativo: BONKUSDT
+#########################################################################
+model='falcon3:3b' created_at='2025-05-08T01:39:47.598264Z' done=True done_reason='stop' total_duration=461174700 load_duration=14194100 prompt_eval_count=996 prompt_eval_duration=183544200 eval_count=7 eval_duration=263436400 message=Message(role='assistant', content='        nota: 65', images=None, tool_calls=None)
+#########################################################################
+

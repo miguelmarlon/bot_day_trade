@@ -1,0 +1,375 @@
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: BCCUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:08:56.2868624Z' done=True done_reason='stop' total_duration=5075923100 load_duration=4522323700 prompt_eval_count=582 prompt_eval_duration=463102700 eval_count=5 eval_duration=89882500 message=Message(role='assistant', content='nota: 20', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: VENUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:08:56.6984769Z' done=True done_reason='stop' total_duration=408982300 load_duration=12500100 prompt_eval_count=587 prompt_eval_duration=342289300 eval_count=2 eval_duration=54192900 message=Message(role='assistant', content='85', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: PAXUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:08:57.2007368Z' done=True done_reason='stop' total_duration=497556400 load_duration=13332900 prompt_eval_count=644 prompt_eval_duration=340621600 eval_count=5 eval_duration=143601900 message=Message(role='assistant', content='nota: 40', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: BCHABCUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:08:57.6207326Z' done=True done_reason='stop' total_duration=416918400 load_duration=14953800 prompt_eval_count=600 prompt_eval_duration=334061100 eval_count=2 eval_duration=67390300 message=Message(role='assistant', content='65', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: BCHSVUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:08:58.0957281Z' done=True done_reason='stop' total_duration=471901500 load_duration=13482200 prompt_eval_count=600 prompt_eval_duration=331950900 eval_count=5 eval_duration=126468400 message=Message(role='assistant', content='nota: 20', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: BTTUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:08:59.1687508Z' done=True done_reason='stop' total_duration=1068355000 load_duration=12928900 prompt_eval_count=634 prompt_eval_duration=340282800 eval_count=34 eval_duration=714631900 message=Message(role='assistant', content='65 \n\n(Volatilidade alta, RSI em sobrecompra, ADX alto, MFI baixo e indicadores de tendência positivos)', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: USDSUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:08:59.6056737Z' done=True done_reason='stop' total_duration=432754400 load_duration=13986500 prompt_eval_count=629 prompt_eval_duration=337051900 eval_count=2 eval_duration=81716000 message=Message(role='assistant', content='60', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: NANOUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:00.0944722Z' done=True done_reason='stop' total_duration=484197500 load_duration=14725900 prompt_eval_count=609 prompt_eval_duration=334716600 eval_count=5 eval_duration=134245800 message=Message(role='assistant', content='nota: 30', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: USDSBUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:02.9086212Z' done=True done_reason='stop' total_duration=2811479900 load_duration=12636100 prompt_eval_count=613 prompt_eval_duration=339109900 eval_count=122 eval_duration=2459225700 message=Message(role='assistant', content='45\n\nNota: A análise indica um potencial para um movimento de alta, mas com uma probabilidade moderada, pois os indicadores como o RSI (55.52) e MFI (35.63) ainda não estão em áreas extremas, enquanto a ADX é muito alta, o que pode sugerir uma tendência forte. Além disso, a Stochastic K está muito próximo do máximo, o que pode indicar um topo ou uma reversão. A decisão de investir deve ser tomada com cautela e considerando outros fatores.', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: ERDUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:03.4117033Z' done=True done_reason='stop' total_duration=498470800 load_duration=15567000 prompt_eval_count=634 prompt_eval_duration=340122100 eval_count=5 eval_duration=142271100 message=Message(role='assistant', content='nota: 42', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: WINUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:03.9643857Z' done=True done_reason='stop' total_duration=548217400 load_duration=14376500 prompt_eval_count=702 prompt_eval_duration=353172800 eval_count=5 eval_duration=180154100 message=Message(role='assistant', content='nota: 40', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: NPXSUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:06.8529734Z' done=True done_reason='stop' total_duration=2884480100 load_duration=13372100 prompt_eval_count=652 prompt_eval_duration=344456100 eval_count=124 eval_duration=2526651900 message=Message(role='assistant', content='71 \n\nNota: A probabilidade de um movimento de alta é moderada, pois os indicadores técnicos mostram uma tendência de estabilização após uma queda recente. O ADX é extremamente alto, o que pode indicar sobreposição ou até mesmo reversão. Além disso, a RSI e MFI estão em regiões neutras, enquanto o MACD está próximo da linha 0. Os demais indicadores não mostram sinais claros de uma alta iminente. Portanto, uma nota de 71% parece razoável.', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: STORMUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:07.2985836Z' done=True done_reason='stop' total_duration=441983800 load_duration=13571600 prompt_eval_count=648 prompt_eval_duration=345009500 eval_count=2 eval_duration=82890600 message=Message(role='assistant', content='76', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: HCUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:07.7915826Z' done=True done_reason='stop' total_duration=489801800 load_duration=13401500 prompt_eval_count=623 prompt_eval_duration=336699200 eval_count=5 eval_duration=139194700 message=Message(role='assistant', content='nota: 20', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: MCOUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:08.2198815Z' done=True done_reason='stop' total_duration=424972000 load_duration=13808200 prompt_eval_count=610 prompt_eval_duration=343438300 eval_count=2 eval_duration=67725500 message=Message(role='assistant', content='58', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: TROYUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:08.747767Z' done=True done_reason='stop' total_duration=524242600 load_duration=13167200 prompt_eval_count=667 prompt_eval_duration=349960100 eval_count=5 eval_duration=161115300 message=Message(role='assistant', content='nota: 20', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: BULLUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:09.1818726Z' done=True done_reason='stop' total_duration=429988600 load_duration=12978800 prompt_eval_count=622 prompt_eval_duration=337001700 eval_count=2 eval_duration=80008100 message=Message(role='assistant', content='70', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: BEARUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:09.672917Z' done=True done_reason='stop' total_duration=488483500 load_duration=17102000 prompt_eval_count=606 prompt_eval_duration=348741300 eval_count=5 eval_duration=122129700 message=Message(role='assistant', content='nota: 5', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: ETHBULLUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:10.1434748Z' done=True done_reason='stop' total_duration=467512900 load_duration=14114800 prompt_eval_count=578 prompt_eval_duration=333794200 eval_count=5 eval_duration=119086500 message=Message(role='assistant', content='nota: 70', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: ETHBEARUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:10.628203Z' done=True done_reason='stop' total_duration=482161600 load_duration=12897400 prompt_eval_count=609 prompt_eval_duration=345554400 eval_count=5 eval_duration=123197100 message=Message(role='assistant', content='nota: 5', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: EOSBULLUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:12.9759941Z' done=True done_reason='stop' total_duration=2345665500 load_duration=12473500 prompt_eval_count=604 prompt_eval_duration=343144000 eval_count=99 eval_duration=1988530900 message=Message(role='assistant', content='61 \n\nNota: A combinação de indicadores sugere uma tendência neutra, com possibilidade de reversão. O RSI está acima do nível de 30, o que pode indicar um ato de resistência. Além disso, a linha MACD está em zona de compra e os demais indicadores não estão mostrando sinais fortes de alta ou baixa. A probabilidade de um movimento de alta é moderada.', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: EOSBEARUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:13.3929093Z' done=True done_reason='stop' total_duration=413835600 load_duration=12986700 prompt_eval_count=590 prompt_eval_duration=345959600 eval_count=2 eval_duration=54380900 message=Message(role='assistant', content='50', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: XRPBULLUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:13.8193268Z' done=True done_reason='stop' total_duration=423124200 load_duration=14379400 prompt_eval_count=603 prompt_eval_duration=349464400 eval_count=2 eval_duration=59280400 message=Message(role='assistant', content='85', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: XRPBEARUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:18.9251822Z' done=True done_reason='stop' total_duration=5102624700 load_duration=14286600 prompt_eval_count=588 prompt_eval_duration=343204300 eval_count=237 eval_duration=4745133800 message=Message(role='assistant', content='87 \n\nNota: Os indicadores mostram um padrão de baixa volatilidade e alta compressão, o que sugere uma possível reversão. No entanto, a SMA(50) e SMA(200) estão indisponíveis, o que pode ser um problema para essa análise. Além disso, os valores do RSI (28.32%) e MFI (28.90%) indicam uma forte tendência de baixa. Ainda assim, o MACD está próximo ao seu valor máximo, o que sugere uma possível reversão. O ADX é muito alto, mas isso pode ser um sinal de força de tendência em vez de volatilidade. As linhas do Bollinger Band estão muito distantes das cotações atuais, o que também pode indicar uma possível reversão. Por fim, os valores do Stochastic K e D estão ambos abaixo da linha média, sugerindo um movimento de baixa. Portanto, embora haja indícios de possibilidade de reversão, a probabilidade ainda não está alta para um movimento de alta.', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: STRATUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:19.4166107Z' done=True done_reason='stop' total_duration=487762100 load_duration=13574000 prompt_eval_count=622 prompt_eval_duration=341271800 eval_count=5 eval_duration=132373700 message=Message(role='assistant', content='nota: 45', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: BNBBULLUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:21.7420543Z' done=True done_reason='stop' total_duration=2322476100 load_duration=12463400 prompt_eval_count=592 prompt_eval_duration=336675400 eval_count=98 eval_duration=1972766200 message=Message(role='assistant', content='65\n\nNota: A probabilidade de um movimento de alta é moderada, considerando que o RSI está em 55,98%, que é uma valor neutro para um movimento de alta. Além disso, o MACD está com um sinal de compra e o MFI está acima do nível neutro (50). No entanto, os indicadores SMAs e EMA não estão disponíveis ou apresentam valores anormais.', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: BNBBEARUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:22.2160188Z' done=True done_reason='stop' total_duration=470930600 load_duration=13561100 prompt_eval_count=593 prompt_eval_duration=342365700 eval_count=5 eval_duration=114001100 message=Message(role='assistant', content='nota: 30', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: XZCUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:22.7052166Z' done=True done_reason='stop' total_duration=485244200 load_duration=13955300 prompt_eval_count=607 prompt_eval_duration=347356800 eval_count=5 eval_duration=123932100 message=Message(role='assistant', content='nota: 42', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: GXSUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:23.191876Z' done=True done_reason='stop' total_duration=482050500 load_duration=14831600 prompt_eval_count=608 prompt_eval_duration=337361000 eval_count=5 eval_duration=129857900 message=Message(role='assistant', content='nota: 55', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: LENDUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:23.6852608Z' done=True done_reason='stop' total_duration=490303800 load_duration=13394800 prompt_eval_count=626 prompt_eval_duration=346401700 eval_count=5 eval_duration=130507300 message=Message(role='assistant', content='Nota: 40', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: BKRWUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:24.1317833Z' done=True done_reason='stop' total_duration=443463200 load_duration=13531700 prompt_eval_count=647 prompt_eval_duration=349820600 eval_count=2 eval_duration=79595600 message=Message(role='assistant', content='61', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: DAIUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:25.2607079Z' done=True done_reason='stop' total_duration=1126794100 load_duration=13378300 prompt_eval_count=621 prompt_eval_duration=342413400 eval_count=37 eval_duration=771002400 message=Message(role='assistant', content='90 \n\n(razões: RSI abaixo de 50, MFI baixo, MACD negativo e Stochastic K em baixa velocidade de recuperação)', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: XTZUPUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:25.7046847Z' done=True done_reason='stop' total_duration=440395600 load_duration=12977300 prompt_eval_count=639 prompt_eval_duration=352833300 eval_count=2 eval_duration=74585000 message=Message(role='assistant', content='95', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: XTZDOWNUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:26.1933448Z' done=True done_reason='stop' total_duration=483090700 load_duration=13008800 prompt_eval_count=609 prompt_eval_duration=343873000 eval_count=5 eval_duration=126208900 message=Message(role='assistant', content='nota: 50', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: BZRXUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:26.6425329Z' done=True done_reason='stop' total_duration=442684200 load_duration=21158900 prompt_eval_count=626 prompt_eval_duration=343161800 eval_count=2 eval_duration=77735200 message=Message(role='assistant', content='43', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: EOSUPUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:27.1470166Z' done=True done_reason='stop' total_duration=500349600 load_duration=13447700 prompt_eval_count=636 prompt_eval_duration=352367100 eval_count=5 eval_duration=134534800 message=Message(role='assistant', content='nota: 40', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: EOSDOWNUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:27.6165141Z' done=True done_reason='stop' total_duration=465820000 load_duration=12897600 prompt_eval_count=655 prompt_eval_duration=358538700 eval_count=2 eval_duration=94383700 message=Message(role='assistant', content='58', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: XRPDOWNUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:28.1705526Z' done=True done_reason='stop' total_duration=549342500 load_duration=15043200 prompt_eval_count=699 prompt_eval_duration=355823400 eval_count=5 eval_duration=178475900 message=Message(role='assistant', content='nota: 35', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: LTCUPUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:28.6099784Z' done=True done_reason='stop' total_duration=434753000 load_duration=14042000 prompt_eval_count=624 prompt_eval_duration=345170900 eval_count=2 eval_duration=75540100 message=Message(role='assistant', content='37', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: LTCDOWNUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:29.0492964Z' done=True done_reason='stop' total_duration=434455200 load_duration=14481100 prompt_eval_count=619 prompt_eval_duration=341079000 eval_count=2 eval_duration=78381900 message=Message(role='assistant', content='49', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: UNIUPUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:29.5472457Z' done=True done_reason='stop' total_duration=493274700 load_duration=13622100 prompt_eval_count=624 prompt_eval_duration=351504400 eval_count=5 eval_duration=127636500 message=Message(role='assistant', content='nota: 60', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: UNIDOWNUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:32.0975333Z' done=True done_reason='stop' total_duration=2546103100 load_duration=14951800 prompt_eval_count=604 prompt_eval_duration=345509600 eval_count=109 eval_duration=2185641700 message=Message(role='assistant', content='nota: 60 \n\n(Descansar que o indicador ADX está muito alto, sugerindo forte tendência. Além disso, os SMAs e EMAs estão em uma configuração de crossover, com o EMA(20) mais rápido ultrapassando o SMA(50), indicando potencial início de alta. No entanto, os RSI e MFI estão ambos abaixo da linha de 70%, sugerindo que o ativo ainda pode estar em uma tendência de baixa).', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: SXPUPUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:32.6008788Z' done=True done_reason='stop' total_duration=499692900 load_duration=12932900 prompt_eval_count=642 prompt_eval_duration=340485200 eval_count=5 eval_duration=145733500 message=Message(role='assistant', content='nota: 60', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: SXPDOWNUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:33.0343374Z' done=True done_reason='stop' total_duration=429301000 load_duration=13125600 prompt_eval_count=628 prompt_eval_duration=348394200 eval_count=2 eval_duration=67781200 message=Message(role='assistant', content='37', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: FILUPUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:33.4740452Z' done=True done_reason='stop' total_duration=435500100 load_duration=16080900 prompt_eval_count=632 prompt_eval_duration=339811000 eval_count=2 eval_duration=79608200 message=Message(role='assistant', content='67', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: FILDOWNUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:33.9805255Z' done=True done_reason='stop' total_duration=502427000 load_duration=13535000 prompt_eval_count=643 prompt_eval_duration=348898100 eval_count=5 eval_duration=139993900 message=Message(role='assistant', content='nota: 20', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: YFIUPUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:34.4914412Z' done=True done_reason='stop' total_duration=506477000 load_duration=16137900 prompt_eval_count=634 prompt_eval_duration=345161400 eval_count=5 eval_duration=144665700 message=Message(role='assistant', content='nota: 20', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: YFIDOWNUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:34.9838386Z' done=True done_reason='stop' total_duration=488853000 load_duration=12570200 prompt_eval_count=620 prompt_eval_duration=340886900 eval_count=5 eval_duration=134882500 message=Message(role='assistant', content='nota: 60', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: BCHUPUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:35.4330511Z' done=True done_reason='stop' total_duration=444777200 load_duration=16604300 prompt_eval_count=635 prompt_eval_duration=354205000 eval_count=2 eval_duration=73967900 message=Message(role='assistant', content='67', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: BCHDOWNUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:35.9272576Z' done=True done_reason='stop' total_duration=490519500 load_duration=13046600 prompt_eval_count=631 prompt_eval_duration=347304500 eval_count=5 eval_duration=130168400 message=Message(role='assistant', content='nota: 20', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: AAVEUPUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:36.4242496Z' done=True done_reason='stop' total_duration=492948100 load_duration=14745200 prompt_eval_count=631 prompt_eval_duration=341998300 eval_count=5 eval_duration=135694800 message=Message(role='assistant', content='nota: 30', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: AAVEDOWNUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:36.8675324Z' done=True done_reason='stop' total_duration=439208900 load_duration=12943600 prompt_eval_count=638 prompt_eval_duration=348484200 eval_count=2 eval_duration=77253100 message=Message(role='assistant', content='83', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: SUSDUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:37.3069485Z' done=True done_reason='stop' total_duration=434808200 load_duration=18084100 prompt_eval_count=620 prompt_eval_duration=344301700 eval_count=2 eval_duration=71888800 message=Message(role='assistant', content='60', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: SUSHIUPUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:37.8120121Z' done=True done_reason='stop' total_duration=501956300 load_duration=14509300 prompt_eval_count=639 prompt_eval_duration=350680100 eval_count=5 eval_duration=136254000 message=Message(role='assistant', content='nota: 40', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: SUSHIDOWNUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:38.2986046Z' done=True done_reason='stop' total_duration=483418300 load_duration=15986700 prompt_eval_count=609 prompt_eval_duration=333826500 eval_count=5 eval_duration=133605100 message=Message(role='assistant', content='nota: 60', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: XLMUPUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:38.7914712Z' done=True done_reason='stop' total_duration=488761800 load_duration=12718000 prompt_eval_count=621 prompt_eval_duration=345247700 eval_count=5 eval_duration=130796100 message=Message(role='assistant', content='nota: 20', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: XLMDOWNUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:39.2807912Z' done=True done_reason='stop' total_duration=486113400 load_duration=14424800 prompt_eval_count=616 prompt_eval_duration=347364700 eval_count=5 eval_duration=123767300 message=Message(role='assistant', content='nota: 42', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: RAMPUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:39.7129072Z' done=True done_reason='stop' total_duration=427417200 load_duration=14386700 prompt_eval_count=616 prompt_eval_duration=339918000 eval_count=2 eval_duration=72601300 message=Message(role='assistant', content='43', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: EPSUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:40.1548219Z' done=True done_reason='stop' total_duration=437556000 load_duration=12898700 prompt_eval_count=633 prompt_eval_duration=344893600 eval_count=2 eval_duration=79251000 message=Message(role='assistant', content='72', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: 1INCHUPUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:40.6603992Z' done=True done_reason='stop' total_duration=502981500 load_duration=13385500 prompt_eval_count=638 prompt_eval_duration=347751700 eval_count=5 eval_duration=141844300 message=Message(role='assistant', content='nota: 30', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: 1INCHDOWNUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:42.5609974Z' done=True done_reason='stop' total_duration=1897355800 load_duration=12887400 prompt_eval_count=641 prompt_eval_duration=355445700 eval_count=75 eval_duration=1528509200 message=Message(role='assistant', content='Nota: 40 \n\n(Venda recente, sobrecompra e divergência RSI/ Stochastic D indicam movimento de baixa. No entanto, os niveis de ADX e MFI sugerem que o ativo está em um período de forte volatilidade. A probabilidade é moderada para um movimento de alta.)', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: SHIBUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:46.5259044Z' done=True done_reason='stop' total_duration=3960112400 load_duration=12970700 prompt_eval_count=706 prompt_eval_duration=352713900 eval_count=175 eval_duration=3594427800 message=Message(role='assistant', content='58. Nota: A análise dos indicadores técnicos sugere que o ativo SHIBUSDT está em uma fase de baixa, com um RSI de 35,59 e um MFI de 49,70, ambos abaixo da média. O ADX também está alto, indicando uma tendência forte. Além disso, o MACD está negativo e a EMA(20) está acima da EMA(50), o que pode sugerir uma reversão em andamento. No entanto, a Bollinger Band está estreita, o que pode ser um sinal de volatilidade baixa. Considerando esses fatores, há uma chance razoável de um movimento de alta para o ativo SHIBUSDT, mas não é muito provável.', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: NUUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:47.0087338Z' done=True done_reason='stop' total_duration=478731200 load_duration=14549500 prompt_eval_count=595 prompt_eval_duration=346532800 eval_count=5 eval_duration=117120400 message=Message(role='assistant', content='nota: 60', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: KEEPUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:49.2957794Z' done=True done_reason='stop' total_duration=2283381000 load_duration=13336100 prompt_eval_count=611 prompt_eval_duration=346824100 eval_count=96 eval_duration=1922708600 message=Message(role='assistant', content='76 \n\nNota: A probabilidade de um movimento de alta é moderada, pois os indicadores técnicos mostram uma tendência de alta a curto prazo (RSI em 71, MACD positivo), mas também há sinais de sobrecompra e volatilidade alta (ADI muito alto). Além disso, os índices de força relativos (SMA, EMA) ainda estão abaixo do preço atual.', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: XECUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:49.8517536Z' done=True done_reason='stop' total_duration=550066000 load_duration=15433600 prompt_eval_count=707 prompt_eval_duration=363638900 eval_count=5 eval_duration=170993500 message=Message(role='assistant', content='nota: 20', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: RGTUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:50.2704443Z' done=True done_reason='stop' total_duration=416085800 load_duration=12731900 prompt_eval_count=598 prompt_eval_duration=340849200 eval_count=2 eval_duration=62504700 message=Message(role='assistant', content='46', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: ANYUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:50.6887159Z' done=True done_reason='stop' total_duration=415174500 load_duration=13555200 prompt_eval_count=594 prompt_eval_duration=342794600 eval_count=2 eval_duration=58310700 message=Message(role='assistant', content='58', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: USTUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:51.1838034Z' done=True done_reason='stop' total_duration=491570700 load_duration=12353600 prompt_eval_count=630 prompt_eval_duration=342939700 eval_count=5 eval_duration=135596900 message=Message(role='assistant', content='nota: 20', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: BTTCUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:51.7308246Z' done=True done_reason='stop' total_duration=543339700 load_duration=12752700 prompt_eval_count=690 prompt_eval_duration=362522600 eval_count=5 eval_duration=167553000 message=Message(role='assistant', content='nota: 40', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: EPXUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:52.2811761Z' done=True done_reason='stop' total_duration=545732400 load_duration=12925700 prompt_eval_count=706 prompt_eval_duration=361888300 eval_count=5 eval_duration=170918400 message=Message(role='assistant', content='nota: 12', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: LUNCUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:52.835057Z' done=True done_reason='stop' total_duration=550156000 load_duration=16575300 prompt_eval_count=700 prompt_eval_duration=357792700 eval_count=5 eval_duration=175788000 message=Message(role='assistant', content='nota: 12', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: PEPEUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:53.3820482Z' done=True done_reason='stop' total_duration=542438100 load_duration=12754000 prompt_eval_count=694 prompt_eval_duration=351113000 eval_count=5 eval_duration=178052200 message=Message(role='assistant', content='nota: 20', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: FLOKIUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:53.9322886Z' done=True done_reason='stop' total_duration=545816600 load_duration=14985800 prompt_eval_count=699 prompt_eval_duration=350417100 eval_count=5 eval_duration=179883900 message=Message(role='assistant', content='nota: 30', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: 1000SATSUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:54.4236386Z' done=True done_reason='stop' total_duration=487238000 load_duration=15161600 prompt_eval_count=701 prompt_eval_duration=355436800 eval_count=2 eval_duration=116090700 message=Message(role='assistant', content='43', images=None, tool_calls=None)
+#########################################################################
+
+#########################################################################
+Predição do modelo: llama3.1:8b para o ativo: BONKUSDT
+model='llama3.1:8b' created_at='2025-05-08T02:09:54.9179437Z' done=True done_reason='stop' total_duration=488930200 load_duration=13466600 prompt_eval_count=709 prompt_eval_duration=360973200 eval_count=2 eval_duration=114490400 message=Message(role='assistant', content='47', images=None, tool_calls=None)
+#########################################################################
+

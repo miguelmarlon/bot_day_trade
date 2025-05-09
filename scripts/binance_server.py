@@ -337,6 +337,7 @@ class BinanceGetTechnicalIndicators(BaseTool):
         
         try:
             data = self.get_historical_data(asset, interval, limit)
+            
             if data.empty:
                 return {"success": False, "error": f"Dados históricos para {asset} não encontrados."}
             
@@ -429,19 +430,43 @@ class BinanceListCryptosByPrice(BaseTool):
     def get_cryptos_by_price(self) -> dict:
         """Retorna uma lista de criptos negociadas em USDT com preço abaixo do limite especificado."""
         try:
-            tickers = self.client.get_all_tickers()
+            # 1. Obtem todos os pares de negociação ativos
+            exchange_info = self.client.get_exchange_info()
+            symbols_ativos = [s['symbol'] for s in exchange_info['symbols'] 
+                              if s['status'] == 'TRADING' and s['symbol'].endswith('USDT')]
+            # 2. Obtem todos os preços de uma só vez
+            todos_precos = self.client.get_all_tickers()
             filtered = []
 
-            for ticker in tickers:
-                symbol = ticker["symbol"]
-                if symbol.endswith("USDT"):
+            print(f"Buscando criptomoedas com par USDT abaixo de ${self.max_price}...")
+            for item in todos_precos:
+                symbol = item['symbol']
+                if symbol in symbols_ativos:
                     try:
-                        price = float(ticker["price"])
+                        price = float(item['price'])
                         if price <= self.max_price:
+                            print(f"Encontrado: {symbol} - ${price}")
                             filtered.append({"symbol": symbol, "price": price})
                     except ValueError:
                         continue
             return pd.DataFrame(filtered)
+            # for ticker in tickers:
+            #     print('Buscando:', ticker)
+            #     symbol = ticker
+            #     if symbol.endswith("USDT"):
+            #         try:
+            #             tool = BinanceGetPrice()
+            #             preco = tool.get_price(symbol)
+            #             price_dict = json.loads(preco)
+            #             price = float(price_dict['price']['price'])
+            #             if price <= self.max_price:
+            #                 filtered.append({"symbol": symbol, "price": price})
+                
+            #         except ValueError:
+            #             continue
+            #     print(f'Busca {ticker} concluída.')
+
+            # return pd.DataFrame(filtered)
         except BinanceAPIException as e:
             return {"success": False, "error": str(e)}
 
@@ -458,12 +483,10 @@ class BinanceListCryptosByPrice(BaseTool):
         if df.empty:
             print(f"Nenhuma cripto encontrada abaixo de ${self.max_price}")
         
-        
     def _run(self, max_price: Optional[float] = None) -> str:
         """Executa a listagem das criptomoedas abaixo do valor máximo especificado."""
         if max_price is not None:
             self.max_price = max_price
-        
         df = self.get_cryptos_by_price()
         return df
 
