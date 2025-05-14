@@ -277,6 +277,46 @@ def criando_relatorio_xlsx(resumo, numero_candles, preco_medio, folder):
 
     print(f"Relatório completo salvo em '{nome_arquivo_excel}'")
 
+def salvar_resultados_csv(resultados_trades, nome_arquivo, log = False):
+    if log:
+        os.makedirs("logs", exist_ok=True)
+        log_path = os.path.join("logs", "log_trade_em_andamento.csv")
+        if isinstance(resultados_trades, pd.DataFrame):
+            resultados_trades.to_csv(log_path, mode="a", header=not os.path.exists(log_path), index=False)
+        else:
+            df_log = pd.DataFrame(resultados_trades)
+            df_log.to_csv(log_path, mode="a", header=not os.path.exists(log_path), index=False)
+    else:
+        if not resultados_trades:
+            return  # nada para salvar
+
+        df_resultados = pd.DataFrame(resultados_trades)
+
+        # Criar pasta de destino
+        pasta_resultados = 'outputs/data/relatorios_rec_com_trades'
+        os.makedirs(pasta_resultados, exist_ok=True)
+
+        # Verifica se já existe resultados anteriores
+        if os.path.exists(nome_arquivo):
+            df_existente = pd.read_csv(nome_arquivo)
+            df_resultados = pd.concat([df_existente, df_resultados], ignore_index=True)
+
+        # Remove duplicatas
+        df_resultados = df_resultados.drop_duplicates(
+            subset=[
+                'id_trade', 'indice_inicio', 'indice_fim',
+                'preco_entrada', 'preco_saida',
+                'timestamp_entrada', 'timestamp_saida'
+            ]
+        )
+
+        # Limpa o nome do arquivo e monta caminho
+        nome_base = nome_arquivo.replace(':', '').replace('.', '').replace('-', '')
+        caminho_final = os.path.join(pasta_resultados, f'resultados_trades_{nome_base}.csv')
+
+        df_resultados.to_csv(caminho_final, index=False)
+        print(f"✅ Resultados salvos em {caminho_final}")
+
 def simular_trade_compra_com_csv(
     preco_entrada,
     df_candles,
@@ -394,7 +434,7 @@ def simular_trade_compra(
     trailing_percentual=0.02,
     usar_break_even=False,
     break_even_trigger=0.03
-):
+    ):
     stop_gain_price = preco_entrada * (1 + stop_gain)
     stop_loss_price = preco_entrada * (1 - stop_loss)
     preco_entrada_com_corretagem = preco_entrada * (1 + taxa_corretagem)
@@ -714,11 +754,15 @@ def simular_compra_tempo_real(cripto,
 
     inicio_operacao = datetime.datetime.now()
     indice_minuto = 0
+    
+    historico_trade = []
+    ultimo_salvamento = datetime.datetime.now()
+    intervalo_salvamento = 1800
 
     if verbose:
         print(f"[{inicio_operacao}] Início da operação.")
-        print(f"Preço de entrada: {preco_entrada:.2f}")
-        print(f"Alvo: {preco_alvo:.2f}, Stop loss: {preco_stop:.2f}")
+        print(f"Preço de entrada: {preco_entrada:.6f}")
+        print(f"Alvo: {preco_alvo:.6f}, Stop loss: {preco_stop:.6f}")
         print(f"Trailing ativo: {usar_trailing_stop}, Break-even ativo: {usar_break_even}\n")
 
     def get_preco_atual():
@@ -732,7 +776,13 @@ def simular_compra_tempo_real(cripto,
     
     while True:
         preco_atual = get_preco_atual()
-        preco_atual = ast.literal_eval(preco_atual.split(": ", 1)[1])
+        try:
+            preco_atual = ast.literal_eval(preco_atual.split(": ", 1)[1])
+        except Exception as e:
+            print(f"Erro ao processar preço: {e}")
+            time.sleep(30)
+            continue
+
         if preco_atual is not None:
             if isinstance(preco_atual, dict):
                 # Caso seja um dicionário, extraia o preço
@@ -751,21 +801,32 @@ def simular_compra_tempo_real(cripto,
             continue
         
         if verbose:
-            print(f"[{datetime.datetime.now()}] Minuto {indice_minuto} - Preço atual: {preco_float:.2f}")
-            print(f"Preço stop atual: {preco_stop:.2f} | Topo: {trailing_topo:.2f}")
+            print(f"[{datetime.datetime.now()}] Minuto {indice_minuto} - Preço atual: {preco_float:.6f}")
+            print(f"Preço stop atual: {preco_stop:.6f} | Topo: {trailing_topo:.6f}")
 
+        # 📝 Adiciona dados ao histórico
+        historico_trade.append({
+            "timestamp": datetime.datetime.now(),
+            "minuto": indice_minuto,
+            "preco_atual": preco_float,
+            "preco_stop": preco_stop,
+            "preco_alvo": preco_alvo,
+            "trailing_topo": trailing_topo,
+            "atingiu_break_even": atingiu_break_even
+        })
+        
         # Verifica Stop Loss
         if preco_float <= preco_stop:
             resultado = "Stop Loss"
             if verbose:
-                print(f"[{datetime.datetime.now()}] Stop Loss acionado a {preco_float:.2f}")
+                print(f"[{datetime.datetime.now()}] Stop Loss acionado a {preco_float:.6f}")
             break
 
         # Verifica Stop Gain
         if preco_float >= preco_alvo:
             resultado = "Stop Gain"
             if verbose:
-                print(f"[{datetime.datetime.now()}] Stop Gain acionado a {preco_float:.2f}")
+                print(f"[{datetime.datetime.now()}] Stop Gain acionado a {preco_float:.6f}")
             break
 
         # Verifica Break Even
@@ -774,15 +835,26 @@ def simular_compra_tempo_real(cripto,
                 preco_stop = preco_break_even
                 atingiu_break_even = True
                 if verbose:
-                    print(f"[{datetime.datetime.now()}] Break-even ativado. Novo stop: {preco_stop:.2f}")
+                    print(f"[{datetime.datetime.now()}] Break-even ativado. Novo stop: {preco_stop:.6f}")
+
         # Verifica Trailing Stop
         if usar_trailing_stop and preco_float > trailing_topo:
             trailing_topo = preco_float
             preco_stop = trailing_topo * (1 - trailing_percentual)
             if verbose:
-                print(f"[{datetime.datetime.now()}] Novo topo: {trailing_topo:.2f} | Novo stop (trailing): {preco_stop:.2f}")
+                print(f"[{datetime.datetime.now()}] Novo topo: {trailing_topo:.6f} | Novo stop (trailing): {preco_stop:.6f}")
 
-        time.sleep(60)  # Espera 1 minuto
+        # Salvamento automático por tempo
+        tempo_passado = (datetime.datetime.now() - ultimo_salvamento).total_seconds()
+        if tempo_passado >= intervalo_salvamento:
+            df_parcial = pd.DataFrame(historico_trade)
+            df_parcial.to_csv("log_trade_em_andamento.csv", mode="a", header=not os.path.exists("log_trade_em_andamento.csv"), index=False)
+            historico_trade.clear()
+            ultimo_salvamento = datetime.datetime.now()
+            if verbose:
+                print(f"[{datetime.datetime.now()}] Log parcial salvo.")
+
+        time.sleep(60)  
         indice_minuto += 1
 
     # Cálculo do resultado
@@ -794,7 +866,25 @@ def simular_compra_tempo_real(cripto,
     retorno_percentual = lucro_liquido / valor_investido
     duracao = datetime.datetime.now() - inicio_operacao
 
-    resumo = f"{resultado} atingido após {indice_minuto} minutos. Lucro líquido: ${lucro_liquido:.2f} ({retorno_percentual:.2%})"
+    resumo = f"{resultado} atingido após {indice_minuto} minutos. Lucro líquido: ${lucro_liquido:.6f} ({retorno_percentual:.2%})"
+
+    # Salva o que restou do log parcial
+    if historico_trade:
+        df_parcial = pd.DataFrame(historico_trade)
+        salvar_resultados_csv(df_parcial, nome_arquivo="agente", log=True)
+
+    resultado_final = pd.DataFrame([{
+        "timestamp_entrada": inicio_operacao,
+        "cripto": cripto,
+        "preco_entrada": preco_entrada,
+        "preco_saida": preco_saida,
+        "lucro_liquido": lucro_liquido,
+        "retorno_percentual": retorno_percentual,
+        "duracao": duracao,
+        "saida_por": resultado
+    }])
+    
+    salvar_resultados_csv(resultado_final, nome_arquivo="agente", log=False)
 
     return lucro_liquido, retorno_percentual, indice_minuto, duracao
 
@@ -879,7 +969,7 @@ def parse_llm_score(response):
 
     return "INDEFINIDO"
 
-def escolher_top_cryptos(intervalo: str = "1d", limite: int = 500, csv: bool = True) -> dict:
+def escolher_top_cryptos(max_price: float = 0.1, intervalo: str = "1d", limite: int = 500, csv: bool = True) -> dict:
     """
     Roda a coleta de indicadores técnicos para todas as criptos em um DataFrame.
     :param df_criptos: DataFrame com uma coluna 'symbol' contendo os nomes das criptos (ex: BTCUSDT).
@@ -892,7 +982,7 @@ def escolher_top_cryptos(intervalo: str = "1d", limite: int = 500, csv: bool = T
     modelos_ollama = ['falcon3:3b', 'falcon3:7b']
     data_hoje = datetime.datetime.today().strftime('%Y-%m-%d')
     resultados_por_modelo = {modelo: '' for modelo in modelos_ollama}   
-    tool = BinanceListCryptosByPrice(max_price=0.1)
+    tool = BinanceListCryptosByPrice(max_price)
     
     df_criptos = tool._run()
     print(df_criptos.shape[0])
@@ -1116,7 +1206,7 @@ def escolher_top_cryptos(intervalo: str = "1d", limite: int = 500, csv: bool = T
             notas_modelos['media'] = sum(notas_validas) / len(notas_validas) if notas_validas else None
 
             notas_modelos[f'valor_dia_{ultimo_dia}'] = ultimo_close
-            notas_modelos[f'valor_dia_{data_hoje}'] = valor_maximo
+            notas_modelos[f'maior_valor_dia_{data_hoje}'] = valor_maximo
             notas_modelos['valorizacao'] = ((valor_maximo - ultimo_close) / ultimo_close) * 100
             resultados_finais_notas.append(notas_modelos)
         else:
@@ -1129,7 +1219,9 @@ def escolher_top_cryptos(intervalo: str = "1d", limite: int = 500, csv: bool = T
     df_top_cryptos = df_resultados.head(10)
     df_piores_cryptos = df_resultados.tail(10)
 
+    print('Top 10 criptos:')
     print(df_top_cryptos)
+    print('Piores 10 criptos:')
     print(df_piores_cryptos)
 
     if csv == True:

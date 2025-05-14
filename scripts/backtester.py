@@ -4,7 +4,7 @@ import ollama
 import pandas as pd
 from binance_server import BinanceGetTechnicalIndicators, BinanceGetPrice, BinanceListCryptosByPrice, parse_llm_response
 import ast
-from utils.tools import escolher_top_cryptos, simular_compra_tempo_real, gerando_predição_tempo_real, create_folder, get_historical_klines, analisar_predicoes, calculando_lucro_prej_operacao, calculando_taxa_acerto_erro, criando_relatorio_xlsx, simular_trade_compra_com_csv
+from utils.tools import salvar_resultados_csv, escolher_top_cryptos, simular_compra_tempo_real, gerando_predição_tempo_real, create_folder, get_historical_klines, analisar_predicoes, calculando_lucro_prej_operacao, calculando_taxa_acerto_erro, criando_relatorio_xlsx, simular_trade_compra_com_csv
 import os
 from binance.client import Client
 import ta
@@ -177,19 +177,6 @@ def executar_backtest_em_batch(df, modelo, batch_size=100, salvar_cada=100, chec
         if os.path.exists(checkpoint_file):
             os.remove(checkpoint_file)
         print("Todos os dados salvos e checkpoint limpo.")
-
-def salvar_resultados_csv(resultados_trades, nome_arquivo):
-    
-    if resultados_trades:
-        df_resultados = pd.DataFrame(resultados_trades)
-        if os.path.exists(nome_arquivo):
-            df_existente = pd.read_csv(nome_arquivo)
-            df_resultados = pd.concat([df_existente, df_resultados], ignore_index=True)
-        df_resultados = df_resultados.drop_duplicates(subset=['id_trade', 'indice_inicio', 'indice_fim', 'preco_entrada', 'preco_saida', 'timestamp_entrada', 'timestamp_saida'])
-        modelo = nome_arquivo.replace(':', '').replace('.', '').replace('-', '')
-        
-        df_resultados.to_csv(f'outputs/data/resultados_trades_{modelo}.csv', index=False)
-        print(f"Resultados salvos em outputs/data/resultados_trades_{modelo}.csv")
 
 def criar_relatorio(resultados_nao_tratados, numero_candles, folder):
     import numpy as np
@@ -393,65 +380,57 @@ while True:
             opcao_4()
             
             try:
-                interval = str(input("Digite o intervalo desejado (1m, 5m, 15m, 1h, 1d): "))
-                print("Iniciando backtest. Pressione Ctrl+C para parar.")
-
-                top_cryptos = escolher_top_cryptos(csv=False)
-                cripto = top_cryptos['symbol'].iloc[0]
+                print("Iniciando backtest de trade automático. Pressione Ctrl+C para parar.")
+                top_cryptos = escolher_top_cryptos(max_price=0.01)
+                backtest = Backtest()
+                intervals = ["1h", "2h", "4h", "6h"]
                 
-                print("Iniciando backtest. Pressione Ctrl+C para parar.")
+                for cripto in top_cryptos['symbol'].iloc[:5]:
+                    print(f"⏳ Monitorando {cripto}...")
 
-                inicio_ultima_gravacao = time.time()
-                resultados_trades = []
-                novo_trade = []
-                trade_history = pd.DataFrame()
+                    inicio_ultima_gravacao = time.time()
+                    resultados_trades = []
+                    novo_trade = []
+                    trade_history = pd.DataFrame()
 
-                while True:
-                    response, preco_float = backtest.backtesting(cripto=cripto, interval=interval)
-                    
-                    
-                    if response == "COMPRA":
-                        print("Sinal de COMPRA detectado.")
-                        # Abrir posição de compra
-                        entry_price = preco_float
-                        entry_time = datetime.now()
-                        
-                        # Registrar entrada no histórico
-                        novo_trade = pd.DataFrame([{
-                            'entry_time': entry_time,
-                            'entry_price': entry_price
-                        }])
-                        
-                        trade_history = pd.concat([trade_history, novo_trade], ignore_index=True)
+                    while True:
+                        sinal_detectado = False
+                        for interval in intervals:
+                            response, preco_float = backtest.backtesting(cripto=cripto, interval=interval)
+                            
+                            if response == "COMPRA":
+                                print(f"Sinal de COMPRA detectado no intervalo {interval}.")
+                                # Abrir posição de compra
+                                entry_price = preco_float
+                                entry_time = datetime.now()
+                                
+                                # Registrar entrada no histórico
+                                novo_trade = pd.DataFrame([{
+                                    'entry_time': entry_time,
+                                    'entry_price': entry_price
+                                }])
+                                
+                                trade_history = pd.concat([trade_history, novo_trade], ignore_index=True)
 
-                        print(f"[{datetime.now()}] Compra simulada a R${preco_float:.2f}")
+                                print(f"[{datetime.now()}] Compra simulada a R${preco_float:.5f}")
 
-                        lucro_liquido, retorno_percentual, indice_minuto, duracao = simular_compra_tempo_real(cripto, preco_float, stop_loss=0.03, stop_gain=0.05)
-                        
-                        resultados_trades.append({
-                            "timestamp_entrada": entry_time,
-                            "preco_entrada": entry_price,
-                            "lucro_liquido": lucro_liquido,
-                            "retorno_percentual": retorno_percentual,
-                            "duracao": duracao
-                        })
-                        salvar_resultados_csv(resultados_trades, modelo="agente")
-                        df_resultados = pd.DataFrame(resultados_trades)
-                    else:
-                        print("Sinal de COMPRA não detectado. Aguardando próxima vela.")
-                        # Aguardar 5 minutos antes de verificar novamente
-                        time.sleep(60)
-
-                    tempo_agora = time.time()
-
-                    if tempo_agora - inicio_ultima_gravacao >= 3600:
-                        if resultados_trades:  # Só salva se houver dados
-                            salvar_resultados_csv(df_resultados, modelo="agente")
-                            print(f"[{datetime.now()}] Resultados salvos após 1h.")
-                            resultados_trades = []  # Limpa após salvar
-                        else:
-                            print(f"[{datetime.now()}] Nenhum dado para salvar.")
-                        inicio_ultima_gravacao = tempo_agora
+                                lucro_liquido, retorno_percentual, indice_minuto, duracao = simular_compra_tempo_real(cripto, preco_float, stop_loss=0.03, stop_gain=0.05)
+                                
+                                resultados_trades.append({
+                                    "timestamp_entrada": entry_time,
+                                    "cripto": cripto,
+                                    "intervalo": interval,
+                                    "preco_entrada": entry_price,
+                                    "lucro_liquido": lucro_liquido,
+                                    "retorno_percentual": retorno_percentual,
+                                    "duracao": duracao
+                                })
+                                
+                                df_resultados = pd.DataFrame(resultados_trades)
+                                sinal_detectado = True
+                                break
+                            if not sinal_detectado:
+                                print(f"Nenhum sinal de compra detectado no intervalo de {interval} para a crypto {cripto}. Aguardando 1 minuto.")
 
             except KeyboardInterrupt:
                 print("Parando execução... Salvando arquivos CSV.")
