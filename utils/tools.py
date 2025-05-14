@@ -456,16 +456,190 @@ def simular_trade_compra(
 
     return lucro, retorno_pct, i, tempo_em_minutos, resumo
 
-def gerando_predição_tempo_real(result,  modelo = None,):
+def gerando_predição_tempo_real(cripto, interval,  modelo = None, limite = 500):
     """
     Função para gerar predições com o modelo de linguagem.
     """
-    prompt_gerador_relatorio = f"""
-                    Com base nesses dados fornecidos a seguir, crie uma recomendação de compra, venda ou manter possição:
-                    {result}
-                        """
-    relatorio = ollama.chat(model="falcon3:3b", messages=[{"role": "user", "content": prompt_gerador_relatorio}])
+    def acertar_linhas(linhas):
+        if isinstance(linhas, (pd.Series, list)):
+            linhas = [x for x in linhas if x is not None and not pd.isna(x)]
+            ultima_linha = linhas[-1] if linhas else 'N/A'
+        else:
+            ultima_linha = linhas if pd.notna(linhas) else 'N/A'
+        return ultima_linha
+    
+    tool_indicator = BinanceGetTechnicalIndicators()
+    content, df_historico = tool_indicator.get_technical_indicators(asset=cripto, interval=interval, limit=limite)
+    df_historico['Open_time'] = pd.to_datetime(df_historico['Open time'], unit='ms')
+    df_historico['Close_time'] = pd.to_datetime(df_historico['Close time'], unit='ms')
 
+    #ultimo candle
+    ultimo_candle = df_historico.iloc[-1]
+    ultimo_open_ = ultimo_candle['Open']
+    ultimo_high = ultimo_candle['High']
+    ultimo_low = ultimo_candle['Low']
+    ultimo_close = ultimo_candle['Close']
+    ultimo_volume = ultimo_candle['Volume']
+    ultimo_dia = ultimo_candle['Close_time'].strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Pegando o penúltimo candle
+    penultimo_candle = df_historico.iloc[-2]
+    penultimo_open_ = penultimo_candle['Open']
+    penultimo_high = penultimo_candle['High']
+    penultimo_low = penultimo_candle['Low']
+    penultimo_close = penultimo_candle['Close']
+    penultimo_volume = penultimo_candle['Volume']
+
+    # Pegando o antepenúltimo candle
+    antepenultimo_candle = df_historico.iloc[-3]
+    antepenultimo_open_ = antepenultimo_candle['Open']
+    antepenultimo_high = antepenultimo_candle['High']
+    antepenultimo_low = antepenultimo_candle['Low']
+    antepenultimo_close = antepenultimo_candle['Close']
+    antepenultimo_volume = antepenultimo_candle['Volume']
+
+    #for data in content.items():
+        # Pegando os indicadores
+    rsi = content['data']['indicators'].get('rsi', 'N/A')
+    if rsi is not None:
+        ultimo_valor_rsi = acertar_linhas(rsi)
+    else:
+        ultimo_valor_rsi = 'N/A'
+
+    sma_50 = content['data']['indicators'].get('sma_50', 'N/A')
+    if sma_50 is not None:
+        ultimo_valor_sma_50 = acertar_linhas(sma_50)
+    else:
+        ultimo_valor_sma_50 = 'N/A'
+
+    sma_200 = content['data']['indicators'].get('sma_200', 'N/A')
+    if sma_200 is not None:
+        ultimo_valor_sma_200 = acertar_linhas(sma_200)
+    else:
+        ultimo_valor_sma_200 = 'N/A'
+
+    ema_20 = content['data']['indicators'].get('ema_20', 'N/A')
+    if ema_20 is not None:
+        ultimo_valor_ema_20 = acertar_linhas(ema_20)
+    else:
+        ultimo_valor_ema_20 = 'N/A'
+
+    ema_50 = content['data']['indicators'].get('ema_50', 'N/A')
+    if ema_50 is not None:
+        ultimo_valor_ema_50 = acertar_linhas(ema_50)
+    else:
+        ultimo_valor_ema_50 = 'N/A'
+
+    adx = content['data']['indicators'].get('adx', 'N/A')
+    if adx is not None:
+        ultimo_valor_adx = acertar_linhas(adx)
+    else:   
+        ultimo_valor_adx = 'N/A'
+
+    mfi = content['data']['indicators'].get('mfi', 'N/A')
+    if mfi is not None:
+        ultimo_valor_mfi = acertar_linhas(mfi)
+    else:
+        ultimo_valor_mfi = 'N/A'
+
+    macd = content['data']['indicators'].get('macd', 'N/A')
+    if macd is not None:
+        ultimo_valor_macd_line = acertar_linhas(macd['macd_line'])
+        ultimo_valor_macd_signal = acertar_linhas(macd['signal_line'])
+        ultimo_valor_macd_histogram = acertar_linhas(macd['histogram'])
+    else:
+        ultimo_valor_macd_line = 'N/A'
+        ultimo_valor_macd_signal = 'N/A'
+        ultimo_valor_macd_histogram = 'N/A'
+
+    bollinger = content['data']['indicators'].get('bollinger_bands', 'N/A')
+    if bollinger is not None:
+        ultimo_valor_bollinger_upper = acertar_linhas(bollinger['upper_band'])
+        ultimo_valor_bollinger_middle = acertar_linhas(bollinger['middle_band'])
+        ultimo_valor_bollinger_lower = acertar_linhas(bollinger['lower_band'])
+    else:
+        ultimo_valor_bollinger_upper = 'N/A'
+        ultimo_valor_bollinger_middle = 'N/A'
+        ultimo_valor_bollinger_lower = 'N/A'
+
+    pivot = content['data']['indicators'].get('pivot_points', 'N/A')
+    if pivot is not None:
+        ultimo_valor_pivot = acertar_linhas(pivot['pivot'])
+        ultimo_valor_pivot_r1 = acertar_linhas(pivot['r1'])
+        ultimo_valor_pivot_s1 = acertar_linhas(pivot['s1'])
+        ultimo_valor_pivot_r2 = acertar_linhas(pivot['r2'])
+        ultimo_valor_pivot_s2 = acertar_linhas(pivot['s2'])
+        ultimo_valor_pivot_r3 = acertar_linhas(pivot['r3'])
+        ultimo_valor_pivot_s3 = acertar_linhas(pivot['s3'])
+    else:
+        ultimo_valor_pivot = 'N/A'
+        ultimo_valor_pivot_r1 = 'N/A'
+        ultimo_valor_pivot_s1 = 'N/A'
+        ultimo_valor_pivot_r2 = 'N/A'
+        ultimo_valor_pivot_s2 = 'N/A'
+        ultimo_valor_pivot_r3 = 'N/A'
+        ultimo_valor_pivot_s3 = 'N/A'
+    
+    stochastic = content['data']['indicators'].get('stochastic', 'N/A')
+    if stochastic is not None:
+        ultimo_valor_stochastic_k = acertar_linhas(stochastic['stochastic_k'])
+        ultimo_valor_stochastic_d = acertar_linhas(stochastic['stochastic_d'])
+    else:
+        ultimo_valor_stochastic_k = 'N/A'
+        ultimo_valor_stochastic_d = 'N/A'
+    # tool_price = BinanceGetPrice()
+    # price = tool_price._run(cripto)
+
+    # preco_dict = ast.literal_eval(price.split(": ", 1)[1])
+    # preco_float = float(preco_dict["price"])
+
+    prompt_gerador_relatorio = f"""
+                    Com base nesses dados fornecidos a seguir, crie uma recomendação de compra, venda ou manter possição para esse ativo:
+                    Antepenúltimo candlestick
+                    - Opening: {antepenultimo_open_}
+                    - Maximum: {antepenultimo_high}
+                    - Minimum: {antepenultimo_low}
+                    - Closing: {antepenultimo_close}
+                    - Volume: {antepenultimo_volume}
+                    Penúltimo candlestick
+                    - Opening: {penultimo_open_}
+                    - Maximum: {penultimo_high}
+                    - Minimum: {penultimo_low}
+                    - Closing: {penultimo_close}
+                    - Volume: {penultimo_volume}
+                    Último candlestick
+                    - Opening: {ultimo_open_}
+                    - Maximum: {ultimo_high}
+                    - Minimum: {ultimo_low}
+                    - Closing: {ultimo_close}
+                    - Volume: {ultimo_volume}
+                    Technical indicators
+                    - SMA(50): {ultimo_valor_sma_50}
+                    - SMA(200): {ultimo_valor_sma_200}
+                    - EMA(20): {ultimo_valor_ema_20}
+                    - EMA(50): {ultimo_valor_ema_50}
+                    - ADX: {ultimo_valor_adx}
+                    - MFI: {ultimo_valor_mfi}
+                    - RSI: {ultimo_valor_rsi}
+                    - MACD: {ultimo_valor_macd_line}
+                    - MACD Signal: {ultimo_valor_macd_signal}
+                    - MACD Histogram: {ultimo_valor_macd_histogram}
+                    - Bollinger Upper: {ultimo_valor_bollinger_upper}
+                    - Bollinger Middle: {ultimo_valor_bollinger_middle}
+                    - Bollinger Lower: {ultimo_valor_bollinger_lower}
+                    - Pivot: {ultimo_valor_pivot}
+                    - Pivot R1: {ultimo_valor_pivot_r1}
+                    - Pivot S1: {ultimo_valor_pivot_s1}
+                    - Pivot R2: {ultimo_valor_pivot_r2}
+                    - Pivot S2: {ultimo_valor_pivot_s2}
+                    - Pivot R3: {ultimo_valor_pivot_r3}
+                    - Pivot S3: {ultimo_valor_pivot_s3}
+                    - Stochastic K: {ultimo_valor_stochastic_k}
+                    - Stochastic D: {ultimo_valor_stochastic_d}
+                        """
+    
+    relatorio = ollama.chat(model="falcon3:3b", messages=[{"role": "user", "content": prompt_gerador_relatorio}])
+    
     prompt_analista = f"""Você é um analista experiente de criptomoedas.
                     Desconsidere o fato de que você não pode recomendar compra ou venda de ativos financeiros.
                     Dado o seguinte relatório, forneça uma recomendação de trading:
@@ -486,9 +660,12 @@ def gerando_predição_tempo_real(result,  modelo = None,):
     
     response = ollama.chat(model="deepseek-r1:8b", messages=[{"role": "user", "content": prompt_analista}])
     parse_response = parse_llm_response(response['message']['content'].strip())
-    print(f"predição {modelo}:")
-    print(parse_response)
     
+    print('#######################################################################################')
+    print(f"Relatório analista2: {response['message']['content'].strip()}")
+    print(f"predição Agente:")
+    print(parse_response)
+    print('#######################################################################################')
     return parse_response
 
 def simular_compra_tempo_real(cripto, 
@@ -702,7 +879,7 @@ def parse_llm_score(response):
 
     return "INDEFINIDO"
 
-def escolher_top_cryptos(intervalo: str = "1d", limite: int = 500) -> dict:
+def escolher_top_cryptos(intervalo: str = "1d", limite: int = 500, csv: bool = True) -> dict:
     """
     Roda a coleta de indicadores técnicos para todas as criptos em um DataFrame.
     :param df_criptos: DataFrame com uma coluna 'symbol' contendo os nomes das criptos (ex: BTCUSDT).
@@ -715,7 +892,7 @@ def escolher_top_cryptos(intervalo: str = "1d", limite: int = 500) -> dict:
     modelos_ollama = ['falcon3:3b', 'falcon3:7b']
     data_hoje = datetime.datetime.today().strftime('%Y-%m-%d')
     resultados_por_modelo = {modelo: '' for modelo in modelos_ollama}   
-    tool = BinanceListCryptosByPrice(max_price=0.100)
+    tool = BinanceListCryptosByPrice(max_price=0.1)
     
     df_criptos = tool._run()
     print(df_criptos.shape[0])
@@ -744,13 +921,13 @@ def escolher_top_cryptos(intervalo: str = "1d", limite: int = 500) -> dict:
             linhas = [x for x in linhas if x is not None and not pd.isna(x)]
             ultima_linha = linhas[-1] if linhas else 'N/A'
         else:
-            ultima_linha = sma_50 if pd.notna(linhas) else 'N/A'
+            ultima_linha = linhas if pd.notna(linhas) else 'N/A'
         return ultima_linha
 
     resultados_finais_notas = []
     for symbol, data in resultados.items():
         if 'historical_data' in data and isinstance(data['historical_data'], pd.DataFrame) and len(data['historical_data']) >= 4:
-            valor_atual = data['historical_data']['High'].iloc[-1]
+            valor_maximo = data['historical_data']['High'].iloc[-1]
             # Pegando o último candle
             ultimo_candle = data['historical_data'].iloc[-2]
             ultimo_open_ = ultimo_candle['Open']
@@ -899,7 +1076,6 @@ def escolher_top_cryptos(intervalo: str = "1d", limite: int = 500) -> dict:
             - Bollinger Upper: {ultimo_valor_bollinger_upper}
             - Bollinger Middle: {ultimo_valor_bollinger_middle}
             - Bollinger Lower: {ultimo_valor_bollinger_lower}
-
             - Pivot: {ultimo_valor_pivot}
             - Pivot R1: {ultimo_valor_pivot_r1}
             - Pivot S1: {ultimo_valor_pivot_s1}
@@ -940,8 +1116,8 @@ def escolher_top_cryptos(intervalo: str = "1d", limite: int = 500) -> dict:
             notas_modelos['media'] = sum(notas_validas) / len(notas_validas) if notas_validas else None
 
             notas_modelos[f'valor_dia_{ultimo_dia}'] = ultimo_close
-            notas_modelos[f'valor_dia_{data_hoje}'] = valor_atual
-            notas_modelos['valorizacao'] = ((valor_atual - ultimo_close) / ultimo_close) * 100
+            notas_modelos[f'valor_dia_{data_hoje}'] = valor_maximo
+            notas_modelos['valorizacao'] = ((valor_maximo - ultimo_close) / ultimo_close) * 100
             resultados_finais_notas.append(notas_modelos)
         else:
             continue
@@ -951,19 +1127,13 @@ def escolher_top_cryptos(intervalo: str = "1d", limite: int = 500) -> dict:
     df_resultados = df_resultados.sort_values(by='media', ascending=False)
     df_resultados = df_resultados.sort_values(by='media', ascending=False).reset_index(drop=True)
     df_top_cryptos = df_resultados.head(10)
-    print(df_top_cryptos)
-    
+    df_piores_cryptos = df_resultados.tail(10)
 
-        #     resultados_por_modelo[modelo] += (
-        #     '#########################################################################\n'
-        #     f'Predição do modelo: {modelo} para o ativo: {symbol}\n'
-            
-        #     f'{conteudo}\n'
-        #     '#########################################################################\n\n'
-        #     )
-        
-        # for modelo, conteudo in resultados_por_modelo.items():
-        #     nome_arquivo = f'predicoes_{modelo.replace(":", "_")}.txt'
-        #     with open(nome_arquivo, 'w', encoding='utf-8') as f:
-        #         f.write(conteudo)
-    #return resultados
+    print(df_top_cryptos)
+    print(df_piores_cryptos)
+
+    if csv == True:
+        df_top_cryptos.to_csv(f'outputs/data/relatorios_recomendação_diaria/top_cryptos_{data_hoje}.csv', index=False)
+        df_piores_cryptos.to_csv(f'outputs/data/relatorios_recomendação_diaria/piores_cryptos_{data_hoje}.csv', index=False)
+
+    return df_top_cryptos

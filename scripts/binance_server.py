@@ -401,9 +401,16 @@ class BinanceGetTechnicalIndicators(BaseTool):
                 if isinstance(value, dict):
                     response += f"\n{key}:\n"
                     for subkey, subvalue in value.items():
-                        response += f"  {subkey}: {subvalue[-1] if subvalue else 'N/A'}\n"
+                        if isinstance(subvalue, list):
+                            response += f"  {subkey}: {subvalue[-1] if subvalue else 'N/A'}\n"
+                        else:
+                            response += f"  {subkey}: {subvalue if subvalue is not None else 'N/A'}\n"
                 else:
-                    response += f"{key}: {value[-1] if value else 'N/A'}\n"
+                    if isinstance(value, pd.DataFrame):
+                        response += f"{key}: {value.iloc[-1].to_dict() if not value.empty else 'N/A'}\n"
+                    else:
+                        response += f"{key}: {value if value is not None else 'N/A'}\n"
+            print(response)
             return response
     
 class BinanceListCryptosByPrice(BaseTool):
@@ -490,31 +497,52 @@ class BinanceListCryptosByPrice(BaseTool):
         df = self.get_cryptos_by_price()
         return df
 
-def parse_llm_response(response):
+# def parse_llm_response(response):
 
-    """Remove acentuação e caracteres especiais do texto."""
+#     """Remove acentuação e caracteres especiais do texto."""
 
-    texto = unicodedata.normalize('NFKD', response)
-    texto = texto.encode('ASCII', 'ignore').decode('utf-8')
-    if not texto:
-        return "INDEFINIDO"
+#     texto = unicodedata.normalize('NFKD', response)
+#     texto = texto.encode('ASCII', 'ignore').decode('utf-8')
+#     if not texto:
+#         return "INDEFINIDO"
     
-    texto = texto.upper()
-    linhas = [linha.strip() for linha in texto.splitlines() if linha.strip()]
-    if not linhas:
-        return "INDEFINIDO"
+#     texto = texto.upper()
+#     linhas = [linha.strip() for linha in texto.splitlines() if linha.strip()]
+#     if not linhas:
+#         return "INDEFINIDO"
 
-    primeira_linha = linhas[0]
+#     primeira_linha = linhas[0]
 
-    match = re.search(r'\b(COMPRA|VENDA|MANTER|MANTENHO)\b', primeira_linha)
-    if match:
-        return match.group(1)
+#     match = re.search(r'\b(COMPRA|VENDA|MANTER|MANTENHO)\b', primeira_linha)
+#     if match:
+#         return match.group(1)
     
-    match = re.search(r'\b(COMPRA|VENDA|MANTER|MANTENHO)\b', texto)
-    if match:
-        return match.group(1)
+#     match = re.search(r'\b(COMPRA|VENDA|MANTER|MANTENHO)\b', texto)
+#     if match:
+#         return match.group(1)
     
-    return "INDEFINIDO"
+#     return "INDEFINIDO"
+
+def parse_llm_response(texto):
+    """
+    Tenta extrair a decisão de trading da LLM com uma abordagem principal.
+    Se falhar, usa uma estratégia alternativa.
+    """
+    # Estratégia principal: buscar 'Decisão: ...'
+    padrao_principal = r"decis[aã]o:\s*(COMPRA|VENDA|MANTER|MANTENER)"
+    match_principal = re.findall(padrao_principal, texto, flags=re.IGNORECASE)
+    
+    if match_principal:
+        return match_principal[-1].upper()
+
+    # Estratégia alternativa: procurar palavras-chave isoladas no fim do texto
+    padrao_alternativo = r"\b(COMPRA|VENDA|MANTER|MANTENER)\b"
+    match_alternativa = re.findall(padrao_alternativo, texto[-200:], flags=re.IGNORECASE)  # Olha só o final do texto
+
+    if match_alternativa:
+        return match_alternativa[-1].upper()
+
+    return "N/A"
     
 ############################################################################################
 ## tentando conectar o mcp com praisonai
