@@ -381,61 +381,61 @@ while True:
             
             try:
                 print("Iniciando backtest de trade automático. Pressione Ctrl+C para parar.")
-                top_cryptos = escolher_top_cryptos(max_price=0.01)
+                top_cryptos = escolher_top_cryptos(max_price=0.1)
+                top_cryptos = top_cryptos.dropna()
                 backtest = Backtest()
-                intervals = ["1h", "2h", "4h", "6h"]
+                intervals = ["15m", "30m", "1h", "2h"]
                 
-                for cripto in top_cryptos['symbol'].iloc[:5]:
+                for cripto in top_cryptos['symbol']:
                     print(f"⏳ Monitorando {cripto}...")
 
                     inicio_ultima_gravacao = time.time()
                     resultados_trades = []
                     novo_trade = []
                     trade_history = pd.DataFrame()
-
-                    while True:
-                        sinal_detectado = False
-                        for interval in intervals:
-                            response, preco_float = backtest.backtesting(cripto=cripto, interval=interval)
+                    
+                    sinal_detectado = False
+                    for interval in intervals:
+                        response, preco_float = backtest.backtesting(cripto=cripto, interval=interval)
+                        
+                        if response == "COMPRA":
+                            print(f"Sinal de COMPRA detectado no intervalo {interval} para a crpyto {cripto}.")
+                            # Abrir posição de compra
+                            entry_price = preco_float
+                            entry_time = datetime.now()
                             
-                            if response == "COMPRA":
-                                print(f"Sinal de COMPRA detectado no intervalo {interval}.")
-                                # Abrir posição de compra
-                                entry_price = preco_float
-                                entry_time = datetime.now()
-                                
-                                # Registrar entrada no histórico
-                                novo_trade = pd.DataFrame([{
-                                    'entry_time': entry_time,
-                                    'entry_price': entry_price
-                                }])
-                                
-                                trade_history = pd.concat([trade_history, novo_trade], ignore_index=True)
+                            # Registrar entrada no histórico
+                            novo_trade = pd.DataFrame([{
+                                'entry_time': entry_time,
+                                'entry_price': entry_price
+                            }])
+                            
+                            trade_history = pd.concat([trade_history, novo_trade], ignore_index=True)
 
-                                print(f"[{datetime.now()}] Compra simulada a R${preco_float:.5f}")
+                            print(f"[{datetime.now()}] Compra simulada a R${preco_float:.6f}")
 
-                                lucro_liquido, retorno_percentual, indice_minuto, duracao = simular_compra_tempo_real(cripto, preco_float, stop_loss=0.03, stop_gain=0.05)
-                                
-                                resultados_trades.append({
-                                    "timestamp_entrada": entry_time,
-                                    "cripto": cripto,
-                                    "intervalo": interval,
-                                    "preco_entrada": entry_price,
-                                    "lucro_liquido": lucro_liquido,
-                                    "retorno_percentual": retorno_percentual,
-                                    "duracao": duracao
-                                })
-                                
-                                df_resultados = pd.DataFrame(resultados_trades)
-                                sinal_detectado = True
-                                break
-                            if not sinal_detectado:
-                                print(f"Nenhum sinal de compra detectado no intervalo de {interval} para a crypto {cripto}. Aguardando 1 minuto.")
-
+                            lucro_liquido, retorno_percentual, indice_minuto, duracao = simular_compra_tempo_real(cripto, preco_float, stop_loss=0.5, stop_gain=1)
+                            
+                            resultados_trades.append({
+                                "timestamp_entrada": entry_time,
+                                "cripto": cripto,
+                                "intervalo": interval,
+                                "preco_entrada": entry_price,
+                                "lucro_liquido": lucro_liquido,
+                                "retorno_percentual": retorno_percentual,
+                                "duracao": duracao
+                            })
+                            
+                            df_resultados = pd.DataFrame(resultados_trades)
+                            sinal_detectado = True
+                            break
+                        if not sinal_detectado:
+                            print(f"Nenhum sinal de compra detectado no intervalo de {interval} para a crypto {cripto}.")
+                        
             except KeyboardInterrupt:
                 print("Parando execução... Salvando arquivos CSV.")
                 if resultados_trades:
-                    salvar_resultados_csv(resultados_trades, modelo="agente")
+                    salvar_resultados_csv(df_resultados, nome_arquivo="agente")
                     print("Dados salvos com sucesso.")
                 else:
                     print("Nenhum dado para salvar.")
