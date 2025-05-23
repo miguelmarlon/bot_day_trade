@@ -11,7 +11,17 @@ import datetime
 import ollama
 import re
 import unicodedata
+import json
+import ast
 from scripts.binance_server import parse_llm_response, BinanceGetPrice, BinanceGetTechnicalIndicators, BinanceListCryptosByPrice
+
+# Quando for criada a classe esse código deve ser inserido dentro dela
+LOGS_FOLDER = "logs"
+OUTPUTS_FOLDER = "outputs/data/relatorios_rec_com_trades"
+
+# Garante que as pastas existam ao iniciar o script
+os.makedirs(LOGS_FOLDER, exist_ok=True)
+os.makedirs(OUTPUTS_FOLDER, exist_ok=True)
 
 def create_folder(folder):
     os.makedirs(folder, exist_ok=True)
@@ -469,7 +479,27 @@ def gerando_predição_tempo_real(cripto, interval,  modelo = None, limite = 500
         return ultima_linha
     
     tool_indicator = BinanceGetTechnicalIndicators()
-    content, df_historico = tool_indicator.get_technical_indicators(asset=cripto, interval=interval, limit=limite)
+    
+    # Verifica se o conteúdo retornado é uma string (erro)
+    MAX_TENTATIVAS = 5  
+    tentativas = 0
+    while tentativas < MAX_TENTATIVAS:
+        content, df_historico = tool_indicator.get_technical_indicators(asset=cripto, interval=interval, limit=limite)
+
+        if isinstance(df_historico, str):
+            print(f"Erro ao obter dados (tentativa {tentativas + 1}/{MAX_TENTATIVAS}): {df_historico}")
+            print("Aguardando 30 segundos para tentar novamente...")
+            time.sleep(30)
+            tentativas += 1
+        else:
+            # Processamento normal se df_historico for um DataFrame
+            df_historico['Open_time'] = pd.to_datetime(df_historico['Open time'], unit='ms')
+            df_historico['Close_time'] = pd.to_datetime(df_historico['Close time'], unit='ms')
+            print("Dados processados com sucesso!")
+            break  # Sai do loop se os dados forem obtidos com sucesso
+    else:
+        print("Não foi possível obter os dados após várias tentativas.")
+
     df_historico['Open_time'] = pd.to_datetime(df_historico['Open time'], unit='ms')
     df_historico['Close_time'] = pd.to_datetime(df_historico['Close time'], unit='ms')
 
@@ -662,66 +692,114 @@ def gerando_predição_tempo_real(cripto, interval,  modelo = None, limite = 500
     parse_response = parse_llm_response(response['message']['content'].strip())
     
     print('#######################################################################################')
-    print(f"Relatório analista2: {response['message']['content'].strip()}")
-    print(f"predição Agente:")
+    print(f"Relatório: {response['message']['content'].strip()}")
+    print(f"Decisão Agente:")
     print(parse_response)
     
     return parse_response
 
-def salvar_resultados_csv(resultados_trades, nome_arquivo, log = False):
+def salvar_resultados_csv(df_dados, nome_arquivo_base, is_log=False):
+    """
+    Salva um DataFrame em um arquivo CSV.
+    Se is_log for True, salva o log detalhado na pasta 'logs'.
+    Caso contrário, salva os resultados finais na pasta 'outputs/data/relatorios_rec_com_trades'.
+
+    Args:
+        df_dados (pd.DataFrame): DataFrame com os dados a serem salvos.
+        nome_arquivo_base (str): Nome base do arquivo CSV (ex: "agente").
+        is_log (bool): Se True, indica que é um arquivo de log detalhado (default False).
+    """
     try:
-        if log:
-            os.makedirs("logs", exist_ok=True)
-            log_path = os.path.join("logs", "log_trade_em_andamento.csv")
-            if isinstance(resultados_trades, pd.DataFrame):
-                resultados_trades.to_csv(log_path, mode="a", header=not os.path.exists(log_path), index=False)
-            else:
-                df_log = pd.DataFrame(resultados_trades)
-                df_log.to_csv(log_path, mode="a", header=not os.path.exists(log_path), index=False)
-            print(f"[LOG] Dados parciais salvos em {log_path}")
+        if df_dados.empty:
+            print("⚠️ Nenhum dado para salvar.")
+            return
+
+        if is_log:
+            # Caminho para o log detalhado
+            arquivo_completo = os.path.join(LOGS_FOLDER, "log_trade_em_andamento.csv")
+            # O cabeçalho só é escrito se o arquivo não existir
+            df_dados.to_csv(arquivo_completo, mode="a", header=not os.path.exists(arquivo_completo), index=False)
+            print(f"[LOG] Dados parciais salvos em {arquivo_completo}")
 
         else:
-            if resultados_trades.empty:
-                print("⚠️ Nenhum resultado para salvar.")
-                return  # nada para salvar
+            # Caminho para os resultados finais
+            # Adiciona a data ao nome do arquivo FINAL, não ao caminho intermediário
+            nome_final_com_data = f"resultados_trades_{nome_arquivo_base}_{datetime.datetime.now().strftime('%Y-%m-%d')}.csv"
+            arquivo_completo = os.path.join(OUTPUTS_FOLDER, nome_final_com_data)
             
-            # Criar pasta de destino
-            pasta_resultados = 'outputs/data/relatorios_rec_com_trades'
-            os.makedirs(pasta_resultados, exist_ok=True)
-            caminho_final = os.path.join(pasta_resultados, f'resultados_trades_{nome_arquivo}.csv')
-            
-            # Verifica se já existe resultados anteriores
-            if os.path.exists(caminho_final):
-                df_existente = pd.read_csv(caminho_final)
-                df_completo = pd.concat([df_existente, resultados_trades], ignore_index=True)
-            else:
-                df_completo = resultados_trades
+            df_para_salvar = df_dados.copy() # Cria uma cópia para evitar SettingWithCopyWarning
 
-            # Remove duplicatas
-            df_completo = df_completo.drop_duplicates(
-                subset=[
-                    "cripto", "timestamp_entrada", "preco_entrada", "preco_saida",
-                    "lucro_liquido", "retorno_percentual", "duracao", "saida_por"
-                    ]
-                    )
-            caminho_final = caminho_final+f"_{datetime.datetime.now().strftime('%Y-%m-%d')}.csv"
-            # Limpa o nome do arquivo e monta caminho
-            df_completo.to_csv(caminho_final, index=False)
-            print(f"✅ Resultados salvos em {caminho_final}")
+            # Se o arquivo de resultados finais já existir, concatena e remove duplicatas
+            if os.path.exists(arquivo_completo):
+                try:
+                    df_existente = pd.read_csv(arquivo_completo)
+                    # Concatena e remove duplicatas. Ajuste 'subset' se 'trade_id' for a chave principal única
+                    # Assumindo que 'trade_id' é a chave para evitar duplicatas em resultados finais
+                    if 'trade_id' in df_para_salvar.columns and 'trade_id' in df_existente.columns:
+                        df_completo = pd.concat([df_existente, df_para_salvar], ignore_index=True)
+                        df_completo.drop_duplicates(subset=['trade_id'], keep='last', inplace=True)
+                    else:
+                        # Fallback se 'trade_id' não estiver presente, use as colunas existentes para duplicatas
+                        # Se você tem uma chave única diferente, ajuste aqui.
+                        # Do contrário, a lógica original do subset de colunas pode ser usada, mas é mais propenso a erros.
+                        print("Atenção: 'trade_id' não encontrado para desduplicar resultados finais. Usando concat simples.")
+                        df_completo = pd.concat([df_existente, df_para_salvar], ignore_index=True)
+                except pd.errors.EmptyDataError:
+                    df_completo = df_para_salvar # Arquivo existia mas estava vazio
+                except Exception as e:
+                    print(f"Erro ao ler CSV existente {arquivo_completo}: {e}. Salvando apenas os novos dados.")
+                    df_completo = df_para_salvar
+            else:
+                df_completo = df_para_salvar
+
+            # Salva o DataFrame final
+            df_completo.to_csv(arquivo_completo, index=False)
+            print(f"✅ Resultados salvos em {arquivo_completo}")
+
     except PermissionError as pe:
         print(f"❌ Erro de permissão ao salvar o arquivo: {pe}")
-    
     except FileNotFoundError as fnfe:
-        print(f"❌ Diretório não encontrado: {fnfe}")
-    
+        print(f"❌ Diretório não encontrado: {fnfe}. Verifique a criação das pastas.")
     except pd.errors.ParserError as pe:
         print(f"❌ Erro ao ler CSV existente: {pe}")
-    
     except Exception as e:
         print(f"❌ Erro desconhecido ao salvar os dados: {e}")
 
+def salvar_estado_trade_principal(trade_info, nome_arquivo="trades_principais_em_andamento.json"):
+    """
+    Salva o estado atual de um trade principal em um arquivo JSON.
+    Este arquivo contém um mapeamento de trade_id para o estado atual do trade.
+    """
+    # --- Configuração da Pasta de Logs ---
+    LOGS_FOLDER = "logs"
+    # Cria a pasta de logs se ela não existir
+    os.makedirs(LOGS_FOLDER, exist_ok=True)
+    caminho_completo_arquivo = os.path.join(LOGS_FOLDER, nome_arquivo)
+
+    trades_ativos = {}
+    if os.path.exists(caminho_completo_arquivo):
+        try:
+            with open(caminho_completo_arquivo, 'r') as f:
+                trades_ativos = json.load(f)
+        except json.JSONDecodeError:
+            print(f"Erro ao ler {caminho_completo_arquivo}. Criando um novo arquivo.")
+            trades_ativos = {}
+    
+    if 'trade_id' in trade_info:
+        trades_ativos[trade_info['trade_id']] = trade_info
+    else:
+        print("Atenção: trade_info sem 'trade_id'. Não foi possível salvar.")
+        return
+
+    # Usar default=str para serializar objetos datetime e timedelta
+    with open(caminho_completo_arquivo, 'w') as f:
+        json.dump(trades_ativos, f, indent=4, default=str) 
+    
+    print(f"Estado do trade principal (ID: {trade_info.get('trade_id', 'N/A')}) salvo em {nome_arquivo}.")
+
 def simular_compra_tempo_real(cripto, 
-                              preco_entrada,
+                                preco_entrada,
+                                trade_id,
                                 valor_investido=100,
                                 stop_loss=0.03,
                                 stop_gain=0.05,
@@ -786,6 +864,23 @@ def simular_compra_tempo_real(cripto,
             print(f"Erro ao obter preço atual: {e}")
             return None
     
+    estado_trade_principal = {
+        "trade_id": trade_id,
+        "cripto": cripto,
+        "status": "EM_ANDAMENTO",
+        "timestamp_entrada": inicio_operacao,
+        "preco_entrada": preco_entrada,
+        "valor_investido": valor_investido,
+        "preco_alvo": preco_alvo,
+        "preco_stop_loss_inicial": preco_stop,
+        "preco_stop_atual": preco_stop, 
+        "trailing_topo_atual": trailing_topo,
+        "duracao_atual_minutos": 0,
+        "lucro_liquido_estimado": 0.0,
+        "retorno_percentual_estimado": 0.0
+    }
+    salvar_estado_trade_principal(estado_trade_principal)
+
     while True:
         preco_atual = get_preco_atual()
         try:
@@ -816,6 +911,17 @@ def simular_compra_tempo_real(cripto,
             print(f"[{datetime.datetime.now()}] Minuto {indice_minuto} - Preço atual: {preco_float:.8f}")
             print(f"Preço stop atual: {preco_stop:.8f} | Topo: {trailing_topo:.8f}")
 
+        
+        # Atualiza o estado para o salvamento principal a cada iteração
+        estado_trade_principal.update({
+            "preco_atual": preco_float,
+            "preco_stop_atual": preco_stop,
+            "trailing_topo_atual": trailing_topo,
+            "duracao_atual_minutos": indice_minuto,
+            "timestamp_ultima_atualizacao": datetime.datetime.now()
+        })
+
+        
         # 📝 Adiciona dados ao histórico
         historico_trade.append({
             "timestamp": datetime.datetime.now(),
@@ -824,7 +930,8 @@ def simular_compra_tempo_real(cripto,
             "preco_stop": preco_stop,
             "preco_alvo": preco_alvo,
             "trailing_topo": trailing_topo,
-            "atingiu_break_even": atingiu_break_even
+            "atingiu_break_even": atingiu_break_even,
+            "trade_id": trade_id
         })
         
         # Verifica Stop Loss
@@ -863,10 +970,12 @@ def simular_compra_tempo_real(cripto,
         if tempo_passado >= intervalo_salvamento:
             df_parcial = pd.DataFrame(historico_trade)
             df_parcial.to_csv("log_trade_em_andamento.csv", mode="a", header=not os.path.exists("log_trade_em_andamento.csv"), index=False)
+            salvar_estado_trade_principal(estado_trade_principal)
             historico_trade.clear()
             ultimo_salvamento = datetime.datetime.now()
             if verbose:
                 print(f"[{datetime.datetime.now()}] Log parcial salvo.")
+                print(f"[{datetime.datetime.now()}] Estado principal do trade salvo (por tempo).")
 
         time.sleep(60)  
         indice_minuto += 1
@@ -874,7 +983,7 @@ def simular_compra_tempo_real(cripto,
     # 💾 Salva o histórico antes de encerrar
     if historico_trade:
         df_parcial = pd.DataFrame(historico_trade)
-        salvar_resultados_csv(df_parcial, nome_arquivo="agente", log=True)
+        salvar_resultados_csv(df_parcial, nome_arquivo_base="agente", is_log=True)
 
     # Cálculo do resultado
     preco_saida = preco_float
@@ -888,7 +997,8 @@ def simular_compra_tempo_real(cripto,
     resumo = f"{resultado} atingido após {indice_minuto} minutos. Lucro líquido: ${lucro_liquido:.8f} ({retorno_percentual:.2%})"
     print(resumo)
 
-    resultado_final = pd.DataFrame([{
+    resultado_final_trade = {
+        "trade_id": trade_id,
         "cripto": cripto,
         "timestamp_entrada": inicio_operacao,
         "preco_entrada": preco_entrada,
@@ -896,12 +1006,15 @@ def simular_compra_tempo_real(cripto,
         "lucro_liquido": lucro_liquido,
         "retorno_percentual": retorno_percentual,
         "duracao": duracao,
-        "saida_por": resultado
-    }])
-    
-    salvar_resultados_csv(resultado_final, nome_arquivo="agente", log=False)
+        "saida_por": resultado,
+        "status": "CONCLUIDO"
+    }
+    # --- Gatilho Final: Salva o estado principal como "CONCLUIDO" ---
+    salvar_estado_trade_principal(resultado_final_trade)
+    df_resultado_final_csv = pd.DataFrame([resultado_final_trade])
+    salvar_resultados_csv(df_resultado_final_csv, nome_arquivo_base="agente", is_log=False)
 
-    return lucro_liquido, retorno_percentual, indice_minuto, duracao
+    return resumo
 
 def calcular_acertividade_modelo():
     """
@@ -1231,6 +1344,7 @@ def escolher_top_cryptos(max_price: float = 0.1, intervalo: str = "1d", limite: 
 
     df_resultados = df_resultados.sort_values(by='media', ascending=False)
     df_resultados = df_resultados.sort_values(by='media', ascending=False).reset_index(drop=True)
+    df_resultados = df_resultados.dropna()
     df_top_cryptos = df_resultados.head(10)
     df_piores_cryptos = df_resultados.tail(10)
 

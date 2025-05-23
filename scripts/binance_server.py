@@ -333,6 +333,7 @@ class BinanceGetTechnicalIndicators(BaseTool):
         valid_intervals = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"]
     
         if interval not in valid_intervals:
+            print(f"Intervalo inválido. Escolha entre: {', '.join(valid_intervals)}")
             return {"success": False, "error": f"Intervalo inválido. Escolha entre: {', '.join(valid_intervals)}"}
         
         try:
@@ -496,32 +497,6 @@ class BinanceListCryptosByPrice(BaseTool):
             self.max_price = max_price
         df = self.get_cryptos_by_price()
         return df
-
-# def parse_llm_response(response):
-
-#     """Remove acentuação e caracteres especiais do texto."""
-
-#     texto = unicodedata.normalize('NFKD', response)
-#     texto = texto.encode('ASCII', 'ignore').decode('utf-8')
-#     if not texto:
-#         return "INDEFINIDO"
-    
-#     texto = texto.upper()
-#     linhas = [linha.strip() for linha in texto.splitlines() if linha.strip()]
-#     if not linhas:
-#         return "INDEFINIDO"
-
-#     primeira_linha = linhas[0]
-
-#     match = re.search(r'\b(COMPRA|VENDA|MANTER|MANTENHO)\b', primeira_linha)
-#     if match:
-#         return match.group(1)
-    
-#     match = re.search(r'\b(COMPRA|VENDA|MANTER|MANTENHO)\b', texto)
-#     if match:
-#         return match.group(1)
-    
-#     return "INDEFINIDO"
 
 def parse_llm_response(texto):
     """
