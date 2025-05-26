@@ -951,19 +951,40 @@ def simular_compra_tempo_real(cripto,
         # Verifica Break Even
         if usar_break_even and not atingiu_break_even:
             if preco_float >= preco_entrada * (1 + break_even_trigger):
-                preco_stop = preco_break_even
-                atingiu_break_even = True
-                if verbose:
-                    print(f"[{datetime.datetime.now()}] Break-even ativado. Novo stop: {preco_stop:.8f}")
+                # Atingiu o gatilho do break-even
+                if preco_entrada > preco_stop: # Só move o stop se o preço de entrada for melhor que o stop atual
+                    preco_stop = preco_break_even # Move o stop para o preço de entrada
+                    atingiu_break_even = True
+                    estado_trade_principal["atingiu_break_even"] = True # Atualiza no estado principal
+                    if verbose:
+                        print(f"[{datetime.datetime.now()}] Break-even ATIVADO. Preço atual: {preco_float:.8f}. Novo stop: {preco_stop:.8f}")
+                elif verbose: # Se o stop já era melhor ou igual ao preço de entrada
+                    print(f"[{datetime.datetime.now()}] Break-even trigger atingido ({preco_float:.8f}), mas stop atual ({preco_stop:.8f}) já é >= preço de entrada ({preco_entrada:.8f}). Break-even considerado ativo.")
+                    atingiu_break_even = True # Marca como ativo mesmo assim para lógica do trailing stop
+                    estado_trade_principal["atingiu_break_even"] = True
 
-        # Verifica Trailing Stop
-        if usar_trailing_stop and preco_float > trailing_topo:
-            trailing_topo = preco_float
-            novo_stop = trailing_topo * (1 - trailing_percentual)
-            if novo_stop > preco_stop:  # Só atualiza se for mais alto
-                preco_stop = novo_stop
+        # 4. Gerencia Trailing Stop (★★★ ALTERAÇÃO PRINCIPAL AQUI ★★★)
+        # Só ativa o trailing stop SE `usar_trailing_stop` E `atingiu_break_even` forem verdadeiros
+        # E o preço atual for maior que o último topo registrado para o trailing.
+        if usar_trailing_stop and atingiu_break_even and preco_float > trailing_topo:
+            trailing_topo = preco_float # Novo topo para o trailing
+            novo_stop_trailing = trailing_topo * (1 - trailing_percentual)
+            
+            # O novo stop do trailing só é aplicado se for MAIOR que o preco_stop ATUAL.
+            # Isso evita que o trailing stop "puxe para baixo" um stop que já foi elevado
+            # (por exemplo, pelo break-even para o preço de entrada, ou por um trailing anterior).
+            if novo_stop_trailing > preco_stop:
+                preco_stop = novo_stop_trailing
                 if verbose:
-                    print(f"[{datetime.datetime.now()}] Novo topo: {trailing_topo:.8f} | Novo stop (trailing): {preco_stop:.8f}")
+                    print(f"[{datetime.datetime.now()}] Trailing Stop ATUALIZADO (pós break-even). Novo topo: {trailing_topo:.8f} -> Novo Stop: {preco_stop:.8f}")
+        
+        # Atualiza estado principal (importante fazer antes do salvamento periódico)
+        # Muitos campos já foram atualizados, mas podemos re-chamar para garantir consistência
+        estado_trade_principal.update({
+            "preco_stop_atual": preco_stop,
+            "trailing_topo_atual": trailing_topo, # Garante que o topo usado no print é o mais recente
+            "timestamp_ultima_atualizacao": datetime.datetime.now().isoformat()
+        })
 
         # Salvamento automático por tempo
         tempo_passado = (datetime.datetime.now() - ultimo_salvamento).total_seconds()
