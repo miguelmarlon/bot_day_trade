@@ -381,7 +381,7 @@ while True:
             
             try:
                 print("Iniciando backtest de trade automático. Pressione Ctrl+C para parar.")
-                top_cryptos = escolher_top_cryptos(max_price=0.01)
+                top_cryptos = escolher_top_cryptos(max_price=0.2)
                 top_cryptos = top_cryptos.dropna()
                 backtest = Backtest()
                 intervals = ["1h", "2h", "4h", "6h"]

@@ -1118,7 +1118,7 @@ def parse_llm_score(response):
 
     return "INDEFINIDO"
 
-def escolher_top_cryptos(max_price: float = 0.1, intervalo: str = "1d", limite: int = 500, csv: bool = True) -> dict:
+def escolher_top_cryptos(max_price: float = 0.1, intervalo: str = "1d", limite: int = 500, csv: bool = False) -> dict:
     """
     Roda a coleta de indicadores técnicos para todas as criptos em um DataFrame.
     :param df_criptos: DataFrame com uma coluna 'symbol' contendo os nomes das criptos (ex: BTCUSDT).
