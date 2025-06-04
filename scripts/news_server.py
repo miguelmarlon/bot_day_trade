@@ -5,13 +5,23 @@ import csv
 from datetime import datetime, timezone
 from urllib.parse import urlparse, urljoin
 from datetime import datetime, timezone, timedelta
-
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 import ollama
 import csv
 from datetime import datetime, timezone, timedelta
-from urllib.parse import urlparse, urljoin # urlparse e urljoin não são usados no código fornecido, mas mantidos caso precise.
+import time
+import logging
+from typing import Optional, List, Dict, Any
+from urllib.parse import urlparse, urljoin
+
+#Configuração necessária para a class EconomicEvents
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 class NewsProcessor:
     """
@@ -200,22 +210,50 @@ class NewsProcessor:
                             ---
                             {text[:5000]} 
                             ---"""
-        resumo = "ERRO! Falha ao gerar resumo inicial." # Valor padrão
+        resumo = "ERRO! Falha ao gerar resumo inicial."
         sentimento = "N/A" # Valor padrão
 
         try:
             response_resumo = ollama.generate(
                 model=self.ollama_model,
                 prompt=prompt_resumo,
-                options={"temperature": 0.3} # Temperatura mais baixa para resumo factual
+                options={"temperature": 0.3}
             )
             resumo = response_resumo['response'].strip()
-            print(f"      Resumo recebido: {resumo}")
-
-            if not resumo or "ERRO!" in resumo: # Verificando se o resumo indica um erro
-                print("      Resumo inválido ou erro detectado pelo modelo. Não prosseguindo para análise de sentimento.")
-                return resumo if resumo else "ERRO! O texto não é relevante ou não pôde ser resumido adequadamente.", "N/A"
             
+            if not resumo or "ERRO!" in resumo: # Verificando se o resumo indica um erro
+                print("Resumo inválido ou erro detectado pelo modelo. Não prosseguindo para análise de sentimento.")
+                return resumo if resumo else "ERRO! O texto não é relevante ou não pôde ser resumido adequadamente.", "N/A"
+            else:
+                prompt_editor = f"""
+                        Você é um editor de conteúdos experiente, especializado em criar posts altamente engajadores para redes sociais.
+
+                        Sua tarefa é analisar o texto fornecido abaixo e transformá-lo em um post otimizado e pronto para ser publicado no aplicativo Telegram. O objetivo é maximizar a clareza, o engajamento e a facilidade de leitura.
+
+                        Instruções Detalhadas:
+                        1.  **Linguagem e Tom:** Utilize português do Brasil. O tom deve ser amigável. Adapte a linguagem para ser de fácil entendimento pelo público geral.
+                        2.  **Sem Título:** O post final NÃO deve conter um título explícito.
+                        3.  **Estrutura e Formato:**
+                            * Divida o texto em parágrafos curtos para facilitar a leitura em dispositivos móveis.
+                            * Use 1 emojis relevantes para tornar o post mais visual e expressivo.
+                        4.  **Engajamento:**
+                            * Caso a notícia envolva algum criptomoeda use uma hashtag com o nome dela.
+                        5.  **Conteúdo e Alterações:**
+                            * Preserve a mensagem central e as informações mais importantes do texto.
+                            * Realize as alterações necessárias para melhorar a fluidez, concisão e impacto do texto. Corrija eventuais erros gramaticais ou ortográficos.
+                        6.  **Resultado Final:** Apresente apenas a versão final do texto do post. Se houver múltiplas formas de reescrever, escolha aquela que for mais coerente, impactante e de fácil entendimento.
+
+                        Texto a ser transformado:
+                        {resumo}"""
+                
+                response_resumo_editor = ollama.generate(
+                model=self.ollama_model,
+                prompt=prompt_editor,
+                options={"temperature": 0.3}
+                )
+                resumo_final = response_resumo_editor['response'].strip()
+                print(f"Resumo recebido: {resumo_final}")
+
             # Se o resumo foi bem-sucedido, prossegue para análise de sentimento
             prompt_sentimento = f"""Você é um analista de sentimento especializado em notícias. Sua tarefa é ler o resumo da notícia fornecida abaixo e classificar o sentimento predominante nele em uma escala numérica de 0 a 10.
 
@@ -231,7 +269,7 @@ class NewsProcessor:
                                 Analise cuidadosamente o conteúdo do resumo abaixo. Forneça **apenas o número** da sua avaliação (0-10).
 
                                 Resumo da notícia:
-                                "{resumo}"
+                                "{resumo_final}"
 
                                 Avaliação (0-10):"""
 
@@ -246,10 +284,9 @@ class NewsProcessor:
             try:
                 int(sentimento) # Apenas para verificar se é conversível
             except ValueError:
-                print(f"      AVISO: Sentimento recebido não é um número simples: '{sentimento}'. Usando como está.")
+                print(f"AVISO: Sentimento recebido não é um número simples: '{sentimento}'. Usando como está.")
 
-
-            return resumo, sentimento
+            return resumo_final, sentimento
         
         except Exception as e:
             print(f"      Erro ao comunicar com Ollama: {e}")
@@ -285,7 +322,6 @@ class NewsProcessor:
             print(f"Erro ao salvar arquivo CSV: {e}")
         except Exception as e:
             print(f"Erro inesperado ao salvar CSV: {e}")
-
 
     def _print_summaries(self, summaries):
         """Imprime uma lista de resumos no console."""
@@ -412,13 +448,249 @@ class NewsProcessor:
         
         return all_summaries
 
+class EconomicEventsError(Exception):
+    """Exceção personalizada para erros na classe EconomicEvents."""
+    pass
+
+class EconomicEvents:
+    DEFAULT_URL = 'https://economic-calendar.tradingview.com/events'
+    DEFAULT_COUNTRIES = ['US']
+    DEFAULT_MAX_ATTEMPTS = 3
+    DEFAULT_RETRY_DELAY_SECONDS = 5
+    DEFAULT_REQUEST_TIMEOUT_SECONDS = 10 # Timeout para a requisição HTTP
+    def __init__(self,
+                 url: str = DEFAULT_URL,
+                 default_countries: Optional[List[str]] = None,
+                 max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+                 retry_delay: int = DEFAULT_RETRY_DELAY_SECONDS,
+                 request_timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS
+                 ):
+        self.url = url
+
+        self.url = url
+        self.default_countries = default_countries if default_countries is not None else list(self.DEFAULT_COUNTRIES)
+        self.max_attempts = max_attempts
+        self.retry_delay = retry_delay
+        self.request_timeout = request_timeout
+
+        print(f"EconomicEvents inicializado. URL: {self.url}, Países Padrão: {self.default_countries}, Tentativas: {self.max_attempts}")
+
+        """
+        Inicializa o cliente para buscar eventos econômicos.
+
+        Args:
+            url (str): URL da API de eventos econômicos.
+            default_countries (Optional[List[str]]): Lista de códigos de países padrão.
+            max_attempts (int): Número máximo de tentativas para a requisição.
+            retry_delay (int): Tempo de espera (em segundos) entre as tentativas.
+            request_timeout (int): Timeout em segundos para a requisição HTTP.
+        """
+
+    def _prepare_time_payload(self,
+                              start_date_param: Optional[pd.Timestamp] = None,
+                              end_date_param: Optional[pd.Timestamp] = None
+                             ) -> Dict[str, str]:
+        """
+        Prepara o payload de tempo para a API, garantindo que os tempos sejam em UTC.
+        A intenção é usar o fuso 'America/Sao_Paulo' como referência para os padrões
+        e converter para UTC para a API.
+        """
+        # Define o fuso horário de referência para datas/horas não especificadas
+        local_tz = 'America/Sao_Paulo'
+
+        # Determina a data de início no fuso local
+        if start_date_param:
+            if start_date_param.tzinfo is None:
+                start_local = start_date_param.tz_localize(local_tz)
+            else:
+                start_local = start_date_param.tz_convert(local_tz)
+        else:
+            # Padrão: hoje às 06:00 no fuso local de referência
+            start_local = pd.Timestamp.now(tz=local_tz).normalize() + pd.Timedelta(hours=6)
+
+        # Determina a data de fim no fuso local
+        if end_date_param:
+            if end_date_param.tzinfo is None:
+                end_local = end_date_param.tz_localize(local_tz)
+            else:
+                end_local = end_date_param.tz_convert(local_tz)
+        else:
+            # Padrão: dia seguinte (em relação ao 'hoje' do fuso local) à meia-noite.
+            # Isso cobre eventos do dia inteiro de 'start_local' se start_local for 00:00,
+            # ou eventos a partir das 6h até o final do dia.
+            # A lógica original era `today + pd.Timedelta(days=1)`, que seria 00:00 do dia seguinte ao 'today'.
+            end_local = pd.Timestamp.now(tz=local_tz).normalize() + pd.Timedelta(days=1)
+
+        # Converte para UTC e formata para a API
+        start_utc = start_local.tz_convert('UTC')
+        end_utc = end_local.tz_convert('UTC')
+
+        # O formato '.000Z' é uma forma comum de representar UTC com milissegundos.
+        # O .isoformat() para Timestamps UTC já inclui o offset (+00:00 ou Z se for simples).
+        # Garantir o formato específico que a API espera.
+        return {
+            'from': start_utc.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z', # Formato ISO com milissegundos e Z
+            'to': end_utc.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
+        }
+    
+    def get_economic_events(self,
+                            countries: Optional[List[str]] = None,
+                            start_date_param: Optional[pd.Timestamp] = None,
+                            end_date_param: Optional[pd.Timestamp] = None
+                           ) -> Optional[pd.DataFrame]:
+        """
+        Busca eventos econômicos da API do TradingView.
+
+        Args:
+            countries (Optional[List[str]]): Lista de códigos de países. Usa padrão da instância se None.
+            start_date_param (Optional[pd.Timestamp]): Data/hora de início (naive ou aware).
+            end_date_param (Optional[pd.Timestamp]): Data/hora de fim (naive ou aware).
+
+        Returns:
+            Optional[pd.DataFrame]: DataFrame com eventos, ou um DataFrame vazio se nenhum evento
+                                   for encontrado. Colunas: ['title', 'indicator', 'actual',
+                                   'previous', 'forecast', 'importance', 'date', 'hora'].
+                                   'date' e 'hora' estão em 'America/Sao_Paulo'.
+
+        Raises:
+            EconomicEventsError: Se não for possível buscar os eventos após todas as tentativas.
+        """
+        time_payload = self._prepare_time_payload(start_date_param, end_date_param)
+        current_countries = countries if countries is not None else self.default_countries
+        
+        headers = {'Origin': 'https://in.tradingview.com'}
+        payload = {
+            **time_payload,
+            'countries': ','.join(current_countries)
+        }
+
+        print(f"Buscando eventos econômicos. Payload: {payload}")
+        last_exception = None
+
+        for attempt in range(self.max_attempts):
+            try:
+                response = requests.get(self.url, headers=headers, params=payload, timeout=self.request_timeout)
+                response.raise_for_status()
+
+                data = response.json()
+
+                if 'result' not in data or not isinstance(data['result'], list):
+                    # Este é um erro estrutural na resposta da API. Novas tentativas podem não ajudar.
+                    print("Chave 'result' não encontrada ou formato inesperado na resposta da API.")
+                    raise EconomicEventsError("Resposta da API com estrutura inválida: sem 'result' ou não é lista.")
+
+                df = pd.DataFrame(data['result'])
+                
+                if df.empty:
+                    print("Nenhum evento encontrado nos dados retornados pela API para os critérios fornecidos.")
+                    return df # Retorna DataFrame vazio se a API não retornou eventos
+
+                # Validação de colunas essenciais
+                required_cols_from_api = {'importance', 'title', 'indicator', 'date'}
+                if not required_cols_from_api.issubset(df.columns):
+                    missing_cols = required_cols_from_api - set(df.columns)
+                    print(f"Colunas essenciais ausentes nos dados da API: {missing_cols}")
+                    raise EconomicEventsError(f"Dados da API incompletos, colunas ausentes: {missing_cols}")
+                
+                # Filtrar por importância (se a coluna existir e for desejado)
+                # A lógica original filtrava df[df['importance'] == 1]. Vamos manter isso.
+                df = df[df['importance'] == 1].copy() # .copy() para evitar SettingWithCopyWarning
+
+                if df.empty:
+                    print("Nenhum evento encontrado com importância == 1.")
+                    return df # Retorna DataFrame vazio se não houver eventos importantes
+
+                # Selecionar e reordenar colunas desejadas, garantindo que existam
+                desired_cols_output = ['title', 'indicator', 'actual', 'previous', 'forecast', 'importance', 'date']
+                cols_to_keep = [col for col in desired_cols_output if col in df.columns]
+                df = df[cols_to_keep]
+
+                # Tratamento de data/hora
+                # A API do TradingView retorna 'date' como string ISO 8601 em UTC (com Z)
+                df['date'] = pd.to_datetime(df['date'], errors='coerce', utc=True) # utc=True informa ao pandas
+                df.dropna(subset=['date'], inplace=True) # Remove linhas onde a data não pôde ser convertida
+
+                if df.empty:
+                     print("Nenhum evento com data válida após conversão e remoção de NaT.")
+                     return df
+
+                # Converter para o fuso horário de São Paulo e extrair a hora
+                df['date'] = df['date'].dt.tz_convert('America/Sao_Paulo')
+                df['hora'] = df['date'].dt.strftime('%H:%M:%S')
+                
+                print(f"Total de {len(df)} eventos econômicos importantes processados.")
+                return df
+
+            except requests.exceptions.HTTPError as e:
+                logger.warning(f"Erro HTTP (tentativa {attempt + 1}/{self.max_attempts}): {e.response.status_code} - {e.response.text}")
+                last_exception = e
+                if 400 <= e.response.status_code < 500 and e.response.status_code not in [429]: # 429 Too Many Requests pode se beneficiar de retry
+                    logger.error(f"Erro de cliente ({e.response.status_code}), interrompendo tentativas.")
+                    break # Interrompe para erros de cliente (ex: 400, 401, 403, 404)
+            except requests.exceptions.Timeout as e:
+                logger.warning(f"Timeout na requisição (tentativa {attempt + 1}/{self.max_attempts}): {e}")
+                last_exception = e
+            except requests.exceptions.ConnectionError as e:
+                logger.warning(f"Erro de conexão (tentativa {attempt + 1}/{self.max_attempts}): {e}")
+                last_exception = e
+            except requests.exceptions.JSONDecodeError as e:
+                logger.error(f"Erro ao decodificar JSON (tentativa {attempt + 1}/{self.max_attempts}): {e.msg}. Resposta: {e.doc[:200]}...") # Mostra parte da resposta problemática
+                last_exception = e
+                break # Erro de decodificação JSON geralmente não se resolve com nova tentativa.
+            except EconomicEventsError as e: # Nossa exceção personalizada para erros de lógica/estrutura
+                logger.error(f"Erro de processamento interno (tentativa {attempt + 1}/{self.max_attempts}): {e}")
+                last_exception = e
+                break # Interrompe pois é um erro que nós identificamos como problemático para continuar.
+            except KeyError as e: # Pode ocorrer se a estrutura do DataFrame mudar inesperadamente
+                logger.error(f"Erro de chave ao acessar dados do DataFrame (tentativa {attempt + 1}/{self.max_attempts}): Coluna {e} não encontrada.")
+                last_exception = e
+                break # Mudança na estrutura de dados, provável que não se resolva com retry.
+            except Exception as e: # Captura qualquer outra exceção não prevista
+                logger.error(f"Erro inesperado (tentativa {attempt + 1}/{self.max_attempts}): {type(e).__name__} - {e}", exc_info=True) # exc_info=True para logar o traceback completo
+                last_exception = e
+            
+            if attempt < self.max_attempts - 1:
+                 print(f"Aguardando {self.retry_delay}s para próxima tentativa...")
+                 time.sleep(self.retry_delay)
+
+        # Se todas as tentativas falharem
+        error_message = "Todas as tentativas de buscar eventos econômicos falharam."
+        print(error_message)
+        if last_exception:
+            raise EconomicEventsError(error_message) from last_exception
+        else:
+            # Caso o loop termine sem exceções mas não retorne (improvável com a lógica atual)
+            raise EconomicEventsError(f"{error_message} Motivo desconhecido.")
+
+# Exemplo de uso (para testar):
+# if __name__ == '__main__':
+#     # Configuração de logging mais detalhada para teste
+#     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+#     events_client = EconomicEvents()
+    
+#     # Teste 1: Padrão (hoje + 6h até dia seguinte 0h, países padrão US)
+#     print("\n--- Teste 1: Padrão ---")
+#     try:
+#         df_events_default = events_client.get_economic_events()
+#         if df_events_default is not None and not df_events_default.empty:
+#             print(f"Eventos encontrados (Padrão):\n{df_events_default.head()}")
+#         elif df_events_default is not None: # DataFrame vazio
+#              print("Nenhum evento encontrado (Padrão).")
+#     except EconomicEventsError as e:
+#         print(f"Erro ao buscar eventos (Padrão): {e}")
+#         if e.__cause__:
+#              print(f"  Causa original: {type(e.__cause__).__name__} - {e.__cause__}")
+
+    
+
 # --- Exemplo de como usar a classe ---
 if __name__ == "__main__":
     print("Executando Exemplo de NewsProcessor...\n")
 
     # Configurações
     meu_modelo_ollama = "gemma3:12b"  # Mude para o seu modelo Ollama disponível
-    maximo_noticias = 2         # Quantas notícias do sitemap processar no máximo (independente do filtro de tempo)
+    maximo_noticias = 10       # Quantas notícias do sitemap processar no máximo (independente do filtro de tempo)
     limite_horas_recentes = 24  # Considerar notícias das últimas X horas
 
     # Criar uma instância do processador
@@ -432,7 +704,7 @@ if __name__ == "__main__":
     # Processar as notícias e obter os resultados
     # Opções de output_format: 'print', 'csv', 'list', 'all'
     resultados = processor.process_news(
-        output_format='print',  # Mude para 'csv', 'print', 'list', ou 'all' conforme necessário
+        output_format='csv',  # Mude para 'csv', 'print', 'list', ou 'all' conforme necessário
         # Se 'csv' ou 'all', o arquivo será salvo com este nome
         csv_filename='noticias_cripto_processadas.csv',
         hours_limit=limite_horas_recentes
@@ -440,9 +712,9 @@ if __name__ == "__main__":
 
     if resultados:
         print(f"\n{len(resultados)} notícias foram processadas e retornadas (dentro do limite de tempo e max_news_to_process).")
-        # Você pode fazer algo mais com os 'resultados' aqui se output_format='list' ou 'all'
-        # print("\nDados retornados:")
-        # for r in resultados:
-        # print(f"  - Título: {r['titulo']}, Sentimento: {r['sentimento']}")
+        #Você pode fazer algo mais com os 'resultados' aqui se output_format='list' ou 'all'
+        print("\nDados retornados:")
+        for r in resultados:
+            print(f"  - Título: {r['titulo']}, Sentimento: {r['sentimento']}")
     else:
         print("\nNenhuma notícia foi processada ou retornada.")
