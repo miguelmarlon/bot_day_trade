@@ -4,7 +4,7 @@ import ollama
 import pandas as pd
 from binance_server import BinanceGetTechnicalIndicators, BinanceGetPrice, BinanceListCryptosByPrice, parse_llm_response
 import ast
-from utils.tools import salvar_resultados_csv, escolher_top_cryptos, simular_compra_tempo_real, gerando_predição_tempo_real, create_folder, get_historical_klines, analisar_predicoes, calculando_lucro_prej_operacao, calculando_taxa_acerto_erro, criando_relatorio_xlsx, simular_trade_compra_com_csv
+from utils.tools import avaliar_btc, salvar_resultados_csv, escolher_top_cryptos, simular_compra_tempo_real, gerando_predição_tempo_real, create_folder, get_historical_klines, analisar_predicoes, calculando_lucro_prej_operacao, calculando_taxa_acerto_erro, criando_relatorio_xlsx, simular_trade_compra_com_csv
 import os
 from binance.client import Client
 import ta
@@ -380,39 +380,93 @@ while True:
             opcao_4()
             
             try:
-                print("Iniciando backtest de trade automático. Pressione Ctrl+C para parar.")
-                top_cryptos = escolher_top_cryptos(max_price=0.2)
-                top_cryptos = top_cryptos.dropna()
-                backtest = Backtest()
-                intervals = ["1h", "2h", "4h", "6h"]
-                trades_em_andamento_file = "trades_principais_em_andamento.json"
+                salvar_csv = str(input("Deseja salvar os dados das melhores e piores cryptos? (S/N): "))
+                if salvar_csv.upper() == 'S':
+                    salvar_csv = True
+                elif salvar_csv.upper() == 'N':
+                    salvar_csv = False
+                else:
+                    print("\nOpção inválida! Por favor, escolha uma opção disponível.")
 
-                for cripto in top_cryptos['symbol']:
-                    print(f"⏳ Monitorando {cripto}...")
+                btc_s_ou_n = str(input("Deseja analisar o BTC antes do trade? (S/N): "))
+                if btc_s_ou_n.upper() == 'N':
+                    print("Iniciando backtest de trade automático sem analise do BTC. Pressione Ctrl+C para parar.")
+                    top_cryptos = escolher_top_cryptos(max_price=0.5, csv= salvar_csv)
+                    top_cryptos = top_cryptos.dropna()
+                    condicao = top_cryptos['media'] >= 70
+                    df_filtrado = top_cryptos[condicao]
+                    backtest = Backtest()
+                    intervals = ["1h", "2h", "4h", "6h"]
+                    trades_em_andamento_file = "trades_principais_em_andamento.json"
 
-                    current_trade_id = f"{cripto}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                    
-                    sinal_detectado = False
-                    for interval in intervals:
-                        response, preco_float = backtest.backtesting(cripto=cripto, interval=interval)
+                    for cripto in top_cryptos['symbol']:
+                        print(f"⏳ Monitorando {cripto}...")
+
+                        current_trade_id = f"{cripto}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
                         
-                        if response == "COMPRA":
-                            print(f"Sinal de COMPRA detectado no intervalo {interval} para a crpyto {cripto}.")
-                            # Abrir posição de compra
-                            entry_price = preco_float
-                            entry_time = datetime.now()
-
-                            print(f"[{datetime.now()}] Compra simulada a R${preco_float:.6f}")
-
-                            resumo = simular_compra_tempo_real(cripto, preco_float, trade_id=current_trade_id, stop_loss=0.5, stop_gain=1)
+                        sinal_detectado = False
+                        for interval in intervals:
+                            response, preco_float = backtest.backtesting(cripto=cripto, interval=interval)
                             
-                            print(resumo)
+                            if response == "COMPRA":
+                                print(f"Sinal de COMPRA detectado no intervalo {interval} para a crpyto {cripto}.")
+                                # Abrir posição de compra
+                                entry_price = preco_float
+                                entry_time = datetime.now()
 
-                            sinal_detectado = True
-                            break
-                        if not sinal_detectado:
-                            print(f"Nenhum sinal de compra detectado no intervalo de {interval} para a crypto {cripto}.")
+                                print(f"[{datetime.now()}] Compra simulada a R${preco_float:.6f}")
+
+                                resumo = simular_compra_tempo_real(cripto, preco_float, trade_id=current_trade_id, stop_loss=0.5, stop_gain=1)
+                                
+                                print(resumo)
+
+                                sinal_detectado = True
+                                break
+                            if not sinal_detectado:
+                                print(f"Nenhum sinal de compra detectado no intervalo de {interval} para a crypto {cripto}.")
+
+                if btc_s_ou_n.upper() == 'S':
+                    print("Iniciando backtest de trade automático com analise do BTC. Pressione Ctrl+C para parar.")
+                    intervalo = ["1d", "6h", "4h", "2h", "1h"]
+                    for interval in intervalo:
+                        print(f'Analisando BTC no intervalo de {interval}...')
+                        nota = avaliar_btc(intervalo=interval)
                         
+                        if float(nota) >= 70:
+                            print(f'Sinal de compra para o BTC encontrado no intervalo de {interval}')
+                            top_cryptos = escolher_top_cryptos(max_price=0.5)
+                            top_cryptos = top_cryptos.dropna()
+                            condicao = top_cryptos['media'] >= 70
+                            df_filtrado = top_cryptos[condicao]
+                            backtest = Backtest()
+                            intervals = ["1h", "2h", "4h", "6h"]
+                            trades_em_andamento_file = "trades_principais_em_andamento.json"
+
+                            for cripto in top_cryptos['symbol']:
+                                print(f"⏳ Monitorando {cripto}...")
+
+                                current_trade_id = f"{cripto}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                                
+                                sinal_detectado = False
+                                
+                                response, preco_float = backtest.backtesting(cripto=cripto, interval=interval)
+                                
+                                if response == "COMPRA":
+                                    print(f"Sinal de COMPRA detectado no intervalo {interval} para a crpyto {cripto}.")
+                                    # Abrir posição de compra
+                                    entry_price = preco_float
+                                    entry_time = datetime.now()
+                                    print(f"[{datetime.now()}] Compra simulada a R${preco_float:.6f}")
+                                    resumo = simular_compra_tempo_real(cripto, preco_float, trade_id=current_trade_id, stop_loss=0.5, stop_gain=1)
+                                    print(resumo)
+                                    sinal_detectado = True
+                                    break
+                                if not sinal_detectado:
+                                    print(f"Nenhum sinal de compra detectado no intervalo de {interval} para a crypto {cripto}.")
+                        else:
+                            print(f"Nenhum sinal de compra detectado no intervalo de {interval} para a crypto BTC.")
+                else:
+                    print("\nOpção inválida! Por favor, escolha uma opção disponível.")
             except KeyboardInterrupt:
                 print("\nParando execução... Verifique os arquivos de log e o estado dos trades.")
                 print("Dados de trade já foram salvos progressivamente em 'trades_principais_em_andamento.json' e 'log_trade_em_andamento.csv'.")

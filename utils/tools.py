@@ -14,6 +14,7 @@ import unicodedata
 import json
 import ast
 from scripts.binance_server import parse_llm_response, BinanceGetPrice, BinanceGetTechnicalIndicators, BinanceListCryptosByPrice
+import pandas as pd
 
 # Quando for criada a classe esse código deve ser inserido dentro dela
 LOGS_FOLDER = "logs"
@@ -998,7 +999,7 @@ def simular_compra_tempo_real(cripto,
                 print(f"[{datetime.datetime.now()}] Log parcial salvo.")
                 print(f"[{datetime.datetime.now()}] Estado principal do trade salvo (por tempo).")
 
-        time.sleep(60)  
+        time.sleep(30)  
         indice_minuto += 1
 
     # 💾 Salva o histórico antes de encerrar
@@ -1378,4 +1379,231 @@ def escolher_top_cryptos(max_price: float = 0.1, intervalo: str = "1d", limite: 
         df_top_cryptos.to_csv(f'outputs/data/relatorios_recomendação_diaria/top_cryptos_{data_hoje}.csv', index=False)
         df_piores_cryptos.to_csv(f'outputs/data/relatorios_recomendação_diaria/piores_cryptos_{data_hoje}.csv', index=False)
 
-    return df_top_cryptos
+    return df_resultados
+
+def avaliar_btc(intervalo: str = "1d", symbol: str = "BTCUSDT", limite: int = 500):
+    def acertar_linhas(linhas):
+        if isinstance(linhas, (pd.Series, list)):
+            linhas = [x for x in linhas if x is not None and not pd.isna(x)]
+            ultima_linha = linhas[-1] if linhas else 'N/A'
+        else:
+            ultima_linha = linhas if pd.notna(linhas) else 'N/A'
+        return ultima_linha
+    
+    resultados = {}
+    modelos_ollama = ['falcon3:3b', 'falcon3:7b']
+    try:
+        
+        indicador_tool = BinanceGetTechnicalIndicators()
+        content, df_historico = indicador_tool.get_technical_indicators(asset=symbol, interval=intervalo, limit=limite)
+        df_historico['Open_time'] = pd.to_datetime(df_historico['Open time'], unit='ms')
+        df_historico['Close_time'] = pd.to_datetime(df_historico['Close time'], unit='ms')
+        
+        if content["success"]:
+            resultados[symbol] = {
+                "historical_data": df_historico,
+                "indicators": content["data"]["indicators"]
+            }
+        
+        else:
+            print(f"[ERRO] {symbol}: {content['error']}")
+        
+    except Exception as e:
+        print(f"[EXCEÇÃO] {symbol}: {e}")
+    
+    for symbol, data in resultados.items():
+        if 'historical_data' in data and isinstance(data['historical_data'], pd.DataFrame) and len(data['historical_data']) >= 4:
+            valor_maximo = data['historical_data']['High'].iloc[-1]
+            # Pegando o último candle
+            ultimo_candle = data['historical_data'].iloc[-2]
+            ultimo_open_ = ultimo_candle['Open']
+            ultimo_high = ultimo_candle['High']
+            ultimo_low = ultimo_candle['Low']
+            ultimo_close = ultimo_candle['Close']
+            ultimo_volume = ultimo_candle['Volume']
+            ultimo_dia = ultimo_candle['Close_time'].strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Pegando o penúltimo candle
+            penultimo_candle = data['historical_data'].iloc[-3]
+            penultimo_open_ = penultimo_candle['Open']
+            penultimo_high = penultimo_candle['High']
+            penultimo_low = penultimo_candle['Low']
+            penultimo_close = penultimo_candle['Close']
+            penultimo_volume = penultimo_candle['Volume']
+
+            # Pegando o antepenúltimo candle
+            antepenultimo_candle = data['historical_data'].iloc[-4]
+            antepenultimo_open_ = antepenultimo_candle['Open']
+            antepenultimo_high = antepenultimo_candle['High']
+            antepenultimo_low = antepenultimo_candle['Low']
+            antepenultimo_close = antepenultimo_candle['Close']
+            antepenultimo_volume = antepenultimo_candle['Volume']
+        
+            # Pegando os indicadores
+            rsi = data['indicators'].get('rsi', 'N/A')
+            if rsi is not None:
+                ultimo_valor_rsi = acertar_linhas(rsi)
+            else:
+                ultimo_valor_rsi = 'N/A'
+
+            sma_50 = data['indicators'].get('sma_50', 'N/A')
+            if sma_50 is not None:
+                ultimo_valor_sma_50 = acertar_linhas(sma_50)
+            else:
+                ultimo_valor_sma_50 = 'N/A'
+
+            sma_200 = data['indicators'].get('sma_200', 'N/A')
+            if sma_200 is not None:
+                ultimo_valor_sma_200 = acertar_linhas(sma_200)
+            else:
+                ultimo_valor_sma_200 = 'N/A'
+
+            ema_20 = data['indicators'].get('ema_20', 'N/A')
+            if ema_20 is not None:
+                ultimo_valor_ema_20 = acertar_linhas(ema_20)
+            else:
+                ultimo_valor_ema_20 = 'N/A'
+
+            ema_50 = data['indicators'].get('ema_50', 'N/A')
+            if ema_50 is not None:
+                ultimo_valor_ema_50 = acertar_linhas(ema_50)
+            else:
+                ultimo_valor_ema_50 = 'N/A'
+
+            adx = data['indicators'].get('adx', 'N/A')
+            if adx is not None:
+                ultimo_valor_adx = acertar_linhas(adx)
+            else:   
+                ultimo_valor_adx = 'N/A'
+
+            mfi = data['indicators'].get('mfi', 'N/A')
+            if mfi is not None:
+                ultimo_valor_mfi = acertar_linhas(mfi)
+            else:
+                ultimo_valor_mfi = 'N/A'
+
+            macd = data['indicators'].get('macd', 'N/A')
+            if macd is not None:
+                ultimo_valor_macd_line = acertar_linhas(macd['macd_line'])
+                ultimo_valor_macd_signal = acertar_linhas(macd['signal_line'])
+                ultimo_valor_macd_histogram = acertar_linhas(macd['histogram'])
+            else:
+                ultimo_valor_macd_line = 'N/A'
+                ultimo_valor_macd_signal = 'N/A'
+                ultimo_valor_macd_histogram = 'N/A'
+
+            bollinger = data['indicators'].get('bollinger_bands', 'N/A')
+            if bollinger is not None:
+                ultimo_valor_bollinger_upper = acertar_linhas(bollinger['upper_band'])
+                ultimo_valor_bollinger_middle = acertar_linhas(bollinger['middle_band'])
+                ultimo_valor_bollinger_lower = acertar_linhas(bollinger['lower_band'])
+            else:
+                ultimo_valor_bollinger_upper = 'N/A'
+                ultimo_valor_bollinger_middle = 'N/A'
+                ultimo_valor_bollinger_lower = 'N/A'
+
+            pivot = data['indicators'].get('pivot_points', 'N/A')
+            if pivot is not None:
+                ultimo_valor_pivot = acertar_linhas(pivot['pivot'])
+                ultimo_valor_pivot_r1 = acertar_linhas(pivot['r1'])
+                ultimo_valor_pivot_s1 = acertar_linhas(pivot['s1'])
+                ultimo_valor_pivot_r2 = acertar_linhas(pivot['r2'])
+                ultimo_valor_pivot_s2 = acertar_linhas(pivot['s2'])
+                ultimo_valor_pivot_r3 = acertar_linhas(pivot['r3'])
+                ultimo_valor_pivot_s3 = acertar_linhas(pivot['s3'])
+            else:
+                ultimo_valor_pivot = 'N/A'
+                ultimo_valor_pivot_r1 = 'N/A'
+                ultimo_valor_pivot_s1 = 'N/A'
+                ultimo_valor_pivot_r2 = 'N/A'
+                ultimo_valor_pivot_s2 = 'N/A'
+                ultimo_valor_pivot_r3 = 'N/A'
+                ultimo_valor_pivot_s3 = 'N/A'
+            
+            stochastic = data['indicators'].get('stochastic', 'N/A')
+            if stochastic is not None:
+                ultimo_valor_stochastic_k = acertar_linhas(stochastic['stochastic_k'])
+                ultimo_valor_stochastic_d = acertar_linhas(stochastic['stochastic_d'])
+            else:
+                ultimo_valor_stochastic_k = 'N/A'
+                ultimo_valor_stochastic_d = 'N/A'
+
+            prompt = f"""
+            O ativo {symbol} apresentou os seguintes dados no último candle:
+            Antepenúltimo candlestick
+            - Opening: {antepenultimo_open_}
+            - Maximum: {antepenultimo_high}
+            - Minimum: {antepenultimo_low}
+            - Closing: {antepenultimo_close}
+            - Volume: {antepenultimo_volume}
+            Penúltimo candlestick
+            - Opening: {penultimo_open_}
+            - Maximum: {penultimo_high}
+            - Minimum: {penultimo_low}
+            - Closing: {penultimo_close}
+            - Volume: {penultimo_volume}
+            Último candlestick
+            - Opening: {ultimo_open_}
+            - Maximum: {ultimo_high}
+            - Minimum: {ultimo_low}
+            - Closing: {ultimo_close}
+            - Volume: {ultimo_volume}
+            Technical indicators
+            - SMA(50): {ultimo_valor_sma_50}
+            - SMA(200): {ultimo_valor_sma_200}
+            - EMA(20): {ultimo_valor_ema_20}
+            - EMA(50): {ultimo_valor_ema_50}
+            - ADX: {ultimo_valor_adx}
+            - MFI: {ultimo_valor_mfi}
+            - RSI: {ultimo_valor_rsi}
+            - MACD: {ultimo_valor_macd_line}
+            - MACD Signal: {ultimo_valor_macd_signal}
+            - MACD Histogram: {ultimo_valor_macd_histogram}
+            - Bollinger Upper: {ultimo_valor_bollinger_upper}
+            - Bollinger Middle: {ultimo_valor_bollinger_middle}
+            - Bollinger Lower: {ultimo_valor_bollinger_lower}
+            - Pivot: {ultimo_valor_pivot}
+            - Pivot R1: {ultimo_valor_pivot_r1}
+            - Pivot S1: {ultimo_valor_pivot_s1}
+            - Pivot R2: {ultimo_valor_pivot_r2}
+            - Pivot S2: {ultimo_valor_pivot_s2}
+            - Pivot R3: {ultimo_valor_pivot_r3}
+            - Pivot S3: {ultimo_valor_pivot_s3}
+            - Stochastic K: {ultimo_valor_stochastic_k}
+            - Stochastic D: {ultimo_valor_stochastic_d}
+                
+            Com base nesses indicadores e no comportamento histórico recente, 
+            avalie a probabilidade de um movimento de alta para o ativo 
+            {symbol} em uma escala de 0 (probabilidade muito baixa) a 100 (probabilidade muito alta).
+
+            Responda somente e exclusivamente dessa forma:
+            "nota: SUA NOTA"
+            """
+    notas_modelos = {}    
+    for modelo in modelos_ollama:
+        #"role": "user", 
+        relatorio = ollama.chat(model=modelo, messages=[{"role": "user", "content": prompt}])
+        conteudo = relatorio['message']['content'] 
+        #if isinstance(relatorio, dict) else str(relatorio)
+        print('#########################################################################')
+        print(f'Predicao {modelo} para o ativo: {symbol}')
+        print(f'Conteudo: {conteudo}')
+        
+        nota = parse_llm_score(conteudo)
+        notas_modelos[modelo] = nota
+    
+    notas_validas = [nota for nota in notas_modelos.values() if nota is not None]
+
+    if notas_validas:
+        media_aritmetica = sum(notas_validas) / len(notas_validas)
+        print(f"A média aritmética das notas válidas é: {media_aritmetica}")
+        # ... e depois pode salvar no dicionário e criar o DataFrame
+        notas_modelos['media_aritmetica'] = media_aritmetica
+        
+    else:
+        print("Não há notas válidas para calcular a média.")
+        notas_modelos['media_aritmetica'] = None
+
+    df_notas = pd.Series(notas_modelos).to_frame(name='Nota')
+    valor_media = df_notas.loc['media_aritmetica', 'Nota']
+    return valor_media
