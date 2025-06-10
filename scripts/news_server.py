@@ -15,6 +15,11 @@ import time
 import logging
 from typing import Optional, List, Dict, Any
 from urllib.parse import urlparse, urljoin
+import asyncio
+import os
+import telegram
+from dotenv import load_dotenv
+import re
 
 #Configuração necessária para a class EconomicEvents
 logging.basicConfig(
@@ -448,6 +453,106 @@ class NewsProcessor:
         
         return all_summaries
 
+    def extract_fear_greed(self):
+        """
+        Busca os dados do índice "Fear & Greed" da API coin-stats,
+        trata possíveis erros de conexão, HTTP e de dados.
+        """
+        url= 'https://api.coin-stats.com/v2/fear-greed'
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        }
+        try:
+            # 1. Tenta fazer a requisição para a API
+            response = requests.get(url, headers=headers, timeout=10) # Adicionado timeout
+
+            # 2. Verifica se a requisição foi bem-sucedida (códigos 2xx)
+            # Se ocorrer um erro de cliente (4xx) ou servidor (5xx), isso levantará uma exceção.
+            response.raise_for_status()
+
+            # 3. Tenta decodificar a resposta JSON
+            data = response.json()
+
+            # 4. Tenta acessar as chaves no dicionário
+            atual = data["now"]["value"]
+            classificacao = data["now"]["value_classification"]
+            ontem = data["yesterday"]["value"]
+            semana_passada = data["lastWeek"]["value"]
+
+            # Se tudo deu certo, imprime os resultados
+            print("--- Índice Fear & Greed ---")
+            print(f"Valor atual: {atual} ({classificacao})")
+            print(f"Ontem: {ontem}")
+            print(f"Semana passada: {semana_passada}")
+            print("---------------------------")
+            return atual, classificacao, ontem
+        
+        except requests.exceptions.RequestException as e:
+            # Captura erros de conexão, timeout, DNS, etc.
+            print(f"❌ Erro de conexão com a API: {e}")
+
+        except requests.exceptions.JSONDecodeError:
+            # Captura erro se a resposta não for um JSON válido
+            print("❌ Erro: A resposta da API não está no formato JSON esperado.")
+
+        except KeyError as e:
+            # Captura erro se uma chave esperada não for encontrada no JSON
+            print(f"❌ Erro: A estrutura dos dados mudou. Chave não encontrada: {e}")
+
+        except Exception as e:
+            # Captura qualquer outro erro inesperado
+            print(f"😕 Ocorreu um erro inesperado: {e}")
+
+    def escapar_markdown_v2(self, texto: str) -> str:
+        """
+        Escapa todos os caracteres reservados do MarkdownV2 do Telegram.
+        """
+        self.texto = texto
+        # A lista de caracteres que precisam ser escapados
+        caracteres_reservados = r"[_*\[\]()~`>#+\-=|{}.!]"
+        
+        # Usa a função re.sub() para adicionar uma '\' antes de cada caractere reservado
+        return re.sub(f'({caracteres_reservados})', r'\\\1', texto)
+
+    def formatar_mensagem_fear_greed(self, atual: int, classificacao: str, ontem: int) -> str:
+        """
+        Cria uma mensagem formatada e dinâmica para o índice Fear & Greed.
+        """
+        self.atual = atual
+        self.classificacao = classificacao
+        self.ontem = ontem
+
+        classificacao_escapada = self.escapar_markdown_v2(texto = self.classificacao)
+
+        # Dicionário de emojis para cada classificação
+        emojis = {
+            "extreme fear": "🥶",
+            "fear": "😨",
+            "neutral": "😐",
+            "greed": "😏",
+            "extreme greed": "🤑"
+        }
+        # Pega o emoji correspondente, ou um padrão caso a classificação não seja encontrada
+        emoji_atual = emojis.get(self.classificacao.lower(), "📊")
+
+        # Compara o valor atual com o de ontem
+        comparacao = ""
+        if self.atual > self.ontem:
+            self.comparacao = f"Subiu desde ontem 📈"
+        elif self.atual < ontem:
+            self.comparacao = f"Desceu desde ontem 📉"
+        else:
+            self.comparacao = f"Estável ↔️"
+        
+        # Monta a mensagem final (não esqueça de escapar os caracteres para o MarkdownV2)
+        mensagem = (
+            f"{emoji_atual} *Fear & Greed Index* {emoji_atual}\n\n"
+            f"👉 *Agora:* {self.atual} \\- *{classificacao_escapada}*\n"
+            f"🗓️ *Ontem:* {self.ontem}\n\n"
+            f"{self.comparacao}"
+        )
+        return mensagem
+
 class EconomicEventsError(Exception):
     """Exceção personalizada para erros na classe EconomicEvents."""
     pass
@@ -662,6 +767,207 @@ class EconomicEvents:
             # Caso o loop termine sem exceções mas não retorne (improvável com a lógica atual)
             raise EconomicEventsError(f"{error_message} Motivo desconhecido.")
 
+class TelegramNotifier:
+    """
+    Uma classe robusta para enviar notificações para o Telegram.
+    
+    Gerencia a inicialização do bot e o envio de mensagens de forma
+    eficiente e flexível.
+    """
+    def __init__(self, token: str = None, chat_id: str = None):
+        """
+        Construtor da classe. Carrega as credenciais e inicializa o bot.
+
+        Args:
+            token (str, optional): Token do bot do Telegram. 
+                                   Se não for fornecido, tenta carregar do .env.
+            chat_id (str, optional): ID do chat para onde enviar as mensagens.
+                                     Se não for fornecido, tenta carregar do .env.
+        """
+        load_dotenv()
+        
+        # Prioriza os argumentos passados, mas usa o .env como fallback
+        self.token = token or os.getenv("TELEGRAM_BOT_TOKEN")
+        self.default_chat_id = chat_id or os.getenv("TELEGRAM_CHAT_ID")
+
+        if not self.token:
+            raise ValueError("Token do Telegram não encontrado. Forneça via argumento ou no arquivo .env.")
+        
+        # O bot é inicializado UMA VEZ aqui, e não a cada envio.
+        self.bot = telegram.Bot(token=self.token)
+        logger.info("Instância do TelegramNotifier criada com sucesso.")
+
+    async def enviar_mensagem(self, texto: str, target_chat_id: str = None) -> bool:
+        """
+        Envia uma mensagem de texto para um chat do Telegram.
+
+        Args:
+            texto (str): A mensagem a ser enviada.
+            target_chat_id (str, optional): O ID do chat de destino. 
+                                            Se não for fornecido, usa o ID padrão.
+
+        Returns:
+            bool: True se a mensagem foi enviada com sucesso, False caso contrário.
+        """
+        chat_id_to_use = target_chat_id or self.default_chat_id
+
+        if not chat_id_to_use:
+            logger.error("Nenhum CHAT_ID de destino foi definido (nem padrão, nem via argumento).")
+            return False
+
+        logger.info(f"Tentando enviar mensagem para o chat ID: {chat_id_to_use[:4]}...") # Mostra só o início do ID por segurança
+        
+        try:
+            await self.bot.send_message(
+                chat_id=chat_id_to_use,
+                text=texto,
+                parse_mode='MarkdownV2'
+            )
+            logger.info("✅ Mensagem enviada com sucesso!")
+            return True
+
+        except telegram.error.TelegramError as e:
+            logger.error(f"❌ Falha ao enviar mensagem: {e}")
+            logger.error("Causas possíveis: Bot não está no grupo, Chat ID incorreto ou bot bloqueado.")
+            return False
+        except Exception as e:
+            logger.error(f"😕 Ocorreu um erro inesperado: {e}", exc_info=True) # exc_info=True mostra o traceback
+            return False
+
+async def main():
+    """Função principal que orquestra todo o processo."""
+    print("Executando o processo de notícias e notificação...\n")
+    
+    try:
+        # Inicializa o notificador do Telegram
+        notifier = TelegramNotifier()
+
+        events_client = EconomicEvents()
+    
+        # Teste 1: Padrão (hoje + 6h até dia seguinte 0h, países padrão US)
+        print("\n--- Eventos importantes ---")
+        try:
+            df_events_default = events_client.get_economic_events()
+            if df_events_default is not None and not df_events_default.empty:
+                print(f"Eventos encontrados (Padrão):\n{df_events_default}")
+            elif df_events_default is not None: # DataFrame vazio
+                print("Nenhum evento encontrado (Padrão).")
+        except EconomicEventsError as e:
+            print(f"Erro ao buscar eventos (Padrão): {e}")
+            if e.__cause__:
+                print(f"Causa original: {type(e.__cause__).__name__} - {e.__cause__}")
+        
+        # Configurações do seu scraper
+        meu_modelo_ollama = "gemma3:12b"
+        maximo_noticias = 1
+        limite_horas_recentes = 24
+
+        # Cria uma instância do processador de notícias
+        processor = NewsProcessor(
+            sitemap_url="https://cointelegraph.com/sitemap-google-news.xml",
+            ollama_model=meu_modelo_ollama,
+            max_news_to_process=maximo_noticias
+        )
+
+        # Processa as notícias (isso continua sendo uma operação síncrona)
+        resultados = processor.process_news(
+            output_format='list',
+            csv_filename='noticias_cripto_processadas.csv',
+            hours_limit=limite_horas_recentes
+        )
+
+        # Captura e envia o índice "Fear & Greed"
+        atual, classificacao, ontem = processor.extract_fear_greed()
+        mensagem = processor.formatar_mensagem_fear_greed(atual, classificacao, ontem)
+        await notifier.enviar_mensagem(mensagem)
+
+        # Formata a mensagem com os resultados
+        if resultados:
+            for r in resultados:
+                resumo = r['resumo']
+                resumo_escapado = processor.escapar_markdown_v2(texto = resumo)
+                # Envia a mensagem formatada para o Telegram
+                await notifier.enviar_mensagem(resumo_escapado)
+        else:
+            logger.info("Nenhuma notícia encontrada para enviar.")
+ 
+        print("\nProcesso finalizado com sucesso!")
+
+    except ValueError as e:
+        logger.error(f"Erro de configuração: {e}. Verifique seu arquivo .env")
+    except Exception as e:
+        logger.error(f"Ocorreu um erro crítico no processo principal: {e}", exc_info=True)
+
+if __name__ == "__main__":
+    
+    asyncio.run(main())
+
+# # --- Exemplo de como usar a classe ---
+# if __name__ == "__main__":
+#     print("Executando Exemplo de NewsProcessor...\n")
+
+#     # Configurações
+#     meu_modelo_ollama = "gemma3:12b"  # Mude para o seu modelo Ollama disponível
+#     maximo_noticias = 10       # Quantas notícias do sitemap processar no máximo (independente do filtro de tempo)
+#     limite_horas_recentes = 24  # Considerar notícias das últimas X horas
+
+#     # Criar uma instância do processador
+#     # Você pode testar diferentes modelos ou sitemaps aqui
+#     processor = NewsProcessor(
+#         sitemap_url="https://cointelegraph.com/sitemap-google-news.xml", # Ou "https://br.cointelegraph.com/sitemap-google-news.xml" para pt-BR
+#         ollama_model=meu_modelo_ollama,
+#         max_news_to_process=maximo_noticias
+#     )
+
+#     # Processar as notícias e obter os resultados
+#     # Opções de output_format: 'print', 'csv', 'list', 'all'
+#     resultados = processor.process_news(
+#         output_format='csv',  # Mude para 'csv', 'print', 'list', ou 'all' conforme necessário
+#         # Se 'csv' ou 'all', o arquivo será salvo com este nome
+#         csv_filename='noticias_cripto_processadas.csv',
+#         hours_limit=limite_horas_recentes
+#     )
+
+#     if resultados:
+#         print(f"\n{len(resultados)} notícias foram processadas e retornadas (dentro do limite de tempo e max_news_to_process).")
+#         #Você pode fazer algo mais com os 'resultados' aqui se output_format='list' ou 'all'
+#         print("\nDados retornados:")
+#         for r in resultados:
+#             print(f"  - Título: {r['titulo']}, Sentimento: {r['sentimento']}")
+#     else:
+#         print("\nNenhuma notícia foi processada ou retornada.")
+    
+#     processor.extract_fear_greed()
+    # asyncio.run(enviar_mensagem(mensagem_para_enviar))
+
+# # --- Como Usar a Nova Classe TelegramNotifier---
+# async def main():
+#     """Função principal para demonstrar o uso da classe."""
+#     try:
+#         # 1. Cria uma instância da classe (ela carrega tudo do .env automaticamente)
+#         notifier = TelegramNotifier()
+
+#         # 2. Envia uma mensagem para o chat padrão
+#         mensagem1 = "Esta é a primeira mensagem de teste usando a classe robusta\\."
+#         sucesso = await notifier.enviar_mensagem(mensagem1)
+#         if sucesso:
+#             print("Demonstração 1: Sucesso!")
+#         else:
+#             print("Demonstração 1: Falha!")
+            
+#         print("-" * 20)
+
+#         # 3. Envia uma mensagem para um OUTRO chat, especificando o ID na chamada
+#         # Descomente a linha abaixo e substitua pelo ID de outro grupo para testar
+#         # await notifier.enviar_mensagem("Esta mensagem vai para outro lugar\\!", target_chat_id="-9876543210")
+
+#     except ValueError as e:
+#         # Se o token não for encontrado na inicialização, o erro será capturado aqui
+#         logger.error(e)
+
+# if __name__ == "__main__":
+#     asyncio.run(main())
+
 # Exemplo de uso (para testar):
 # if __name__ == '__main__':
 #     # Configuração de logging mais detalhada para teste
@@ -681,40 +987,3 @@ class EconomicEvents:
 #         print(f"Erro ao buscar eventos (Padrão): {e}")
 #         if e.__cause__:
 #              print(f"  Causa original: {type(e.__cause__).__name__} - {e.__cause__}")
-
-    
-
-# --- Exemplo de como usar a classe ---
-if __name__ == "__main__":
-    print("Executando Exemplo de NewsProcessor...\n")
-
-    # Configurações
-    meu_modelo_ollama = "gemma3:12b"  # Mude para o seu modelo Ollama disponível
-    maximo_noticias = 10       # Quantas notícias do sitemap processar no máximo (independente do filtro de tempo)
-    limite_horas_recentes = 24  # Considerar notícias das últimas X horas
-
-    # Criar uma instância do processador
-    # Você pode testar diferentes modelos ou sitemaps aqui
-    processor = NewsProcessor(
-        sitemap_url="https://cointelegraph.com/sitemap-google-news.xml", # Ou "https://br.cointelegraph.com/sitemap-google-news.xml" para pt-BR
-        ollama_model=meu_modelo_ollama,
-        max_news_to_process=maximo_noticias
-    )
-
-    # Processar as notícias e obter os resultados
-    # Opções de output_format: 'print', 'csv', 'list', 'all'
-    resultados = processor.process_news(
-        output_format='csv',  # Mude para 'csv', 'print', 'list', ou 'all' conforme necessário
-        # Se 'csv' ou 'all', o arquivo será salvo com este nome
-        csv_filename='noticias_cripto_processadas.csv',
-        hours_limit=limite_horas_recentes
-    )
-
-    if resultados:
-        print(f"\n{len(resultados)} notícias foram processadas e retornadas (dentro do limite de tempo e max_news_to_process).")
-        #Você pode fazer algo mais com os 'resultados' aqui se output_format='list' ou 'all'
-        print("\nDados retornados:")
-        for r in resultados:
-            print(f"  - Título: {r['titulo']}, Sentimento: {r['sentimento']}")
-    else:
-        print("\nNenhuma notícia foi processada ou retornada.")

@@ -416,7 +416,7 @@ while True:
 
                                 print(f"[{datetime.now()}] Compra simulada a R${preco_float:.6f}")
 
-                                resumo = simular_compra_tempo_real(cripto, preco_float, trade_id=current_trade_id, stop_loss=0.5, stop_gain=1)
+                                resumo = simular_compra_tempo_real(cripto, preco_float, trade_id=current_trade_id, stop_loss=0.5, stop_gain=1, trailing_percentual=0.03)
                                 
                                 print(resumo)
 
@@ -434,7 +434,7 @@ while True:
                         
                         if float(nota) >= 70:
                             print(f'Sinal de compra para o BTC encontrado no intervalo de {interval}')
-                            top_cryptos = escolher_top_cryptos(max_price=0.5)
+                            top_cryptos = escolher_top_cryptos(max_price=0.5, csv= salvar_csv)
                             top_cryptos = top_cryptos.dropna()
                             condicao = top_cryptos['media'] >= 70
                             df_filtrado = top_cryptos[condicao]
