@@ -26,7 +26,11 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
-from datetime import datetime
+from datetime import datetime, date
+import xml.etree.ElementTree as ET
+import matplotlib.pyplot as plt
+import squarify 
+import numpy as np
 
 #Configuração necessária para a class EconomicEvents
 logging.basicConfig(
@@ -35,7 +39,568 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class NewsProcessor:
+class SumarizeAnalyzeOllama:
+    """
+    Uma classe para fazer analise de sentimento e resumo das notícias
+    """
+    def __init__(self, ollama_model="gemma3:12b"):
+        """
+        Inicializa o processador de notícias.
+
+        Args:
+            sitemap_url (str): URL do sitemap XML para buscar as notícias.
+            ollama_model (str): Nome do modelo Ollama a ser usado para resumo e sentimento.
+            max_news_to_process (int): Número máximo de notícias a serem processadas do sitemap.
+            request_headers (dict, optional): Headers HTTP para as requisições. 
+                                              Usa DEFAULT_REQUEST_HEADERS se None.
+        """
+        self.ollama_model = ollama_model
+        print(f"Analisando o texto com o modelo: {self.ollama_model}")
+
+    def summarize_and_analyze_with_ollama(self, text):
+        """
+        Envia o texto para o Ollama para resumo e análise de sentimento.
+        Interno à classe, usa self.ollama_model.
+
+        Args:
+            text (str): O texto a ser resumido e analisado.
+
+        Returns:
+            tuple: (resumo, sentimento) ou (mensagem_de_erro_resumo, "N/A")
+        """
+        if not text or not text.strip():
+            print("    Texto vazio fornecido para resumo. Pulando.")
+            return "Não foi possível extrair conteúdo para resumo.", "N/A"
+
+        print(f"Enviando texto para o modelo Ollama '{self.ollama_model}' para resumo e sentimento...")
+        
+        prompt_resumo = f"""Por favor, resuma o seguinte texto de notícia em português, em aproximadamente 3 frases.
+                            O resumo deve ser pronto para ser postado em um canal de rede social.
+                            Se o texto for muito curto, irrelevante ou não for uma notícia financeira/cripto, indique isso com uma mensagem de erro: "ERRO!".
+
+                            Texto da notícia:
+                            ---
+                            {text[:5000]} 
+                            ---"""
+        resumo = "ERRO! Falha ao gerar resumo inicial."
+        sentimento = "N/A"
+
+        try:
+            response_resumo = ollama.generate(
+                model=self.ollama_model,
+                prompt=prompt_resumo,
+                options={"temperature": 0.3}
+            )
+            resumo = response_resumo['response'].strip()
+            
+            if not resumo or "ERRO!" in resumo: # Verificando se o resumo indica um erro
+                print("Resumo inválido ou erro detectado pelo modelo. Não prosseguindo para análise de sentimento.")
+                return resumo if resumo else "ERRO! O texto não é relevante ou não pôde ser resumido adequadamente.", "N/A"
+            else:
+                prompt_editor = f"""
+                        Você é um editor de conteúdos experiente, especializado em criar posts altamente engajadores para redes sociais.
+
+                        Sua tarefa é analisar o texto fornecido abaixo e transformá-lo em um post otimizado e pronto para ser publicado no aplicativo Telegram. O objetivo é maximizar a clareza, o engajamento e a facilidade de leitura.
+
+                        Instruções Detalhadas:
+                        1.  **Linguagem e Tom:** Utilize português do Brasil. O tom deve ser amigável. Adapte a linguagem para ser de fácil entendimento pelo público geral.
+                        2.  **Sem Título:** O post final NÃO deve conter um título explícito.
+                        3.  **Estrutura e Formato:**
+                            * Divida o texto em parágrafos curtos para facilitar a leitura em dispositivos móveis.
+                            * Use 1 emojis relevantes para tornar o post mais visual e expressivo.
+                        4.  **Engajamento:**
+                            * Caso a notícia envolva algum criptomoeda use uma hashtag com o nome dela.
+                        5.  **Conteúdo e Alterações:**
+                            * Preserve a mensagem central e as informações mais importantes do texto.
+                            * Realize as alterações necessárias para melhorar a fluidez, concisão e impacto do texto. Corrija eventuais erros gramaticais ou ortográficos.
+                        6.  **Resultado Final:** Apresente apenas a versão final do texto do post. Se houver múltiplas formas de reescrever, escolha aquela que for mais coerente, impactante e de fácil entendimento.
+
+                        Texto a ser transformado:
+                        {resumo}"""
+                
+                response_resumo_editor = ollama.generate(
+                model=self.ollama_model,
+                prompt=prompt_editor,
+                options={"temperature": 0.3}
+                )
+                resumo_final = response_resumo_editor['response'].strip()
+                print(f"Resumo recebido: {resumo_final}")
+
+            # Se o resumo foi bem-sucedido, prossegue para análise de sentimento
+            prompt_sentimento = f"""Você é um analista de sentimento especializado em notícias. Sua tarefa é ler o resumo da notícia fornecida abaixo e classificar o sentimento predominante nele em uma escala numérica de 0 a 10.
+
+                                Considere a seguinte escala para sua avaliação:
+                                * **0:** Notícia extremamente negativa, péssima, desastrosa.
+                                * **1-2:** Notícia muito negativa.
+                                * **3-4:** Notícia negativa.
+                                * **5:** Notícia neutra ou mista.
+                                * **6-7:** Notícia positiva.
+                                * **8-9:** Notícia muito positiva.
+                                * **10:** Notícia extremamente positiva, excelente.
+
+                                Analise cuidadosamente o conteúdo do resumo abaixo. Forneça **apenas o número** da sua avaliação (0-10).
+
+                                Resumo da notícia:
+                                "{resumo_final}"
+
+                                Avaliação (0-10):"""
+
+            response_sentimento = ollama.generate(
+                model=self.ollama_model, # Pode usar o mesmo modelo ou um específico para classificação
+                prompt=prompt_sentimento,
+                options={"temperature": 0.1} # Temperatura muito baixa para classificação precisa
+            )
+            sentimento = response_sentimento['response'].strip()
+            print(f"Sentimento recebido: {sentimento}")
+            # Validar se o sentimento é um número, opcionalmente
+            try:
+                int(sentimento) # Apenas para verificar se é conversível
+            except ValueError:
+                print(f"AVISO: Sentimento recebido não é um número simples: '{sentimento}'. Usando como está.")
+
+            return resumo_final, sentimento
+        
+        except Exception as e:
+            print(f"Erro ao comunicar com Ollama: {e}")
+            print(f"Verifique se o Ollama está rodando e o modelo '{self.ollama_model}' está disponível ('ollama list').")
+            return "Erro ao gerar resumo/sentimento via Ollama.", sentimento
+
+class EscaparMarkdown:
+    def __init__(self, texto):
+        self.texto = texto
+
+    def escapar_markdown_v2(self):
+        """
+        Escapa todos os caracteres reservados do MarkdownV2 do Telegram.
+        Este é um método estático porque não depende de nenhum estado do objeto (self).
+        """
+        caracteres_reservados = r"[_*\[\]()~`>#+\-=|{}.!]"
+        return re.sub(f'({caracteres_reservados})', r'\\\1', self.texto)
+
+class HeatMap():
+    """
+    Classe para pesquisar as maior moedas do mercado e criar o gráfico Heatmap das 40 maiores.
+    """
+    def __init__(self):
+        pass
+    # --- Passo 1: Obter as 100 principais moedas por capitalização de mercado (sem alterações) ---
+    def get_top_100_coins(self):
+        """Busca as 100 maiores criptomoedas por capitalização de mercado no CoinGecko."""
+        url = "https://api.coingecko.com/api/v3/coins/markets"
+        params = {
+            'vs_currency': 'usd',
+            'order': 'market_cap_desc',
+            'per_page': 100,
+            'page': 1,
+            'sparkline': 'false'
+        }
+        try:
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            df = pd.DataFrame(data)[['symbol', 'market_cap']]
+            df['symbol'] = df['symbol'].str.upper()
+            return df
+        except requests.exceptions.RequestException as e:
+            print(f"Erro ao buscar dados do CoinGecko: {e}")
+            return None
+
+    # --- Passo 2: Obter dados de variação de 24h da API da Binance (sem alterações) ---
+    def get_binance_24h_changes(self):
+        """Busca os dados de variação de preço de 24h para todos os pares na Binance."""
+        url = "https://api.binance.com/api/v3/ticker/24hr"
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            data = response.json()
+            price_data = {}
+            for item in data:
+                if item['symbol'].endswith('USDT'):
+                    symbol = item['symbol'].replace('USDT', '')
+                    price_data[symbol] = {
+                        'price': float(item['lastPrice']),
+                        'change_24h': float(item['priceChangePercent'])
+                    }
+            return price_data
+        except requests.exceptions.RequestException as e:
+            print(f"Erro ao buscar dados da Binance: {e}")
+            return None
+
+    # --- Passo 3: Combinar os dados e gerar o gráfico ---
+    def create_crypto_treemap(self):
+        """Função principal que combina os dados e cria o treemap com Matplotlib."""
+
+        # --- CONFIGURAÇÕES ---
+        STABLECOINS_A_EXCLUIR = ['USDT', 'USDC', 'DAI', 'TUSD', 'FDUSD', 'USDP', 'BUSD', 'USDS']
+        MOEDAS_PARA_MOSTRAR_INDIVIDUALMENTE = 40
+        COR_DAS_DIVISORIAS = 'black'
+        LARGURA_DAS_DIVISORIAS = 1
+        FATOR_DE_COMPRESSAO = 0.5
+
+        print("Buscando e processando dados...")
+        top_coins_df = self.get_top_100_coins()
+        if top_coins_df is None:
+            return
+
+        binance_data = self.get_binance_24h_changes()
+        if binance_data is None:
+            return
+
+        # Combinar os dados
+        data_to_plot = []
+        for _, row in top_coins_df.iterrows():
+            symbol = row['symbol']
+            if symbol in binance_data:
+                coin_info = binance_data[symbol]
+                data_to_plot.append({
+                    'symbol': symbol,
+                    'market_cap': row['market_cap'],
+                    'change_24h': coin_info['change_24h'],
+                    'price': coin_info['price']
+                })
+
+        full_df = pd.DataFrame(data_to_plot)
+
+        print(f"Excluindo stablecoins: {', '.join(STABLECOINS_A_EXCLUIR)}")
+        plot_df = full_df[~full_df['symbol'].isin(STABLECOINS_A_EXCLUIR)].copy()
+
+        # Agrupar menores como "OUTROS"
+        if len(plot_df) > MOEDAS_PARA_MOSTRAR_INDIVIDUALMENTE:
+            print(f"Mostrando as {MOEDAS_PARA_MOSTRAR_INDIVIDUALMENTE} maiores e agrupando as outras.")
+            df_top = plot_df.head(MOEDAS_PARA_MOSTRAR_INDIVIDUALMENTE)
+            df_others = plot_df.tail(len(plot_df) - MOEDAS_PARA_MOSTRAR_INDIVIDUALMENTE)
+            others_market_cap = df_others['market_cap'].sum()
+            weighted_change_others = np.average(df_others['change_24h'], weights=df_others['market_cap'])
+            df_others_grouped = pd.DataFrame([{
+                'symbol': 'OUTROS',
+                'market_cap': others_market_cap,
+                'change_24h': weighted_change_others,
+                'price': 0
+            }])
+            plot_df = pd.concat([df_top, df_others_grouped]).reset_index(drop=True)
+
+        print("Gerando o gráfico treemap com Matplotlib...")
+
+        # Preparar dados para squarify
+        plot_df['size'] = plot_df['market_cap'] ** FATOR_DE_COMPRESSAO
+        colors = ['#2ca02c' if x >= 0 else '#d62728' for x in plot_df['change_24h']]
+
+        # Normalizar tamanho da fonte com base no log da capitalização
+        log_caps = np.log10(plot_df['market_cap'] + 1)
+        min_size, max_size = 6, 18
+        font_sizes = min_size + (log_caps - log_caps.min()) / (log_caps.max() - log_caps.min()) * (max_size - min_size)
+
+        # Gerar retângulos
+        rects = squarify.normalize_sizes(plot_df['size'], 100, 100)
+        rects = squarify.squarify(rects, 0, 0, 100, 100)
+
+        # Criar gráfico
+        fig, ax = plt.subplots(figsize=(16, 9))
+        for i, rect in enumerate(rects):
+            symbol = plot_df.iloc[i]['symbol']
+            change = plot_df.iloc[i]['change_24h']
+            price = plot_df.iloc[i]['price']
+            font_size = font_sizes.iloc[i]
+
+            label = f"{symbol}\n{change:.2f}%\n${price:,.2f}" if symbol != 'OUTROS' else "OUTROS"
+
+            # Retângulo
+            ax.add_patch(plt.Rectangle(
+                (rect['x'], rect['y']), rect['dx'], rect['dy'],
+                facecolor=colors[i], edgecolor=COR_DAS_DIVISORIAS, linewidth=LARGURA_DAS_DIVISORIAS
+            ))
+
+            # Texto centralizado
+            ax.text(
+                rect['x'] + rect['dx'] / 2,
+                rect['y'] + rect['dy'] / 2,
+                label,
+                ha='center', va='center',
+                fontsize=font_size,
+                color='white',
+                weight='bold'
+            )
+
+        ax.set_xlim(0, 100)
+        ax.set_ylim(0, 100)
+        ax.axis('off')
+        plt.title('Heatmap Cripto por Capitalização de Mercado (24h)', fontsize=20, fontweight='bold')
+        os.makedirs('outputs/images', exist_ok=True)
+        plt.savefig('outputs/images/crypto_treemap_ajustado.png', 
+                    dpi=300, 
+                    bbox_inches='tight', 
+                    pad_inches=0.1, 
+                    facecolor='white')
+
+        print("\nGráfico gerado com sucesso! O arquivo 'outputs/images/crypto_treemap_ajustado.png' foi salvo.")
+
+class ScraperBeincrypto:
+    """
+    Uma classe para fazer scraping de notícias do site Beincrypto.
+    """
+
+    def __init__(self, sitemap_url= "https://br.beincrypto.com/news-sitemap.xml"):
+        self.sitemap_url = sitemap_url
+        self.namespaces = {
+            'sitemap': 'http://www.sitemaps.org/schemas/sitemap/0.9',
+            'news': 'http://www.google.com/schemas/sitemap-news/0.9',
+        }
+        # Adiciona um header para simular um navegador, o que ajuda a evitar bloqueios
+        self.headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+
+    def _fetch_content(self, url= "https://br.beincrypto.com/news-sitemap.xml") -> Optional[str]:
+        """
+        Busca o conteúdo (XML ou HTML) de uma URL.
+
+        Args:
+            url (str): A URL a ser buscada.
+
+        Returns:
+            Optional[str]: O conteúdo como uma string de texto ou None se a requisição falhar.
+        """
+        try:
+            # Usando o header definido na inicialização
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            return response.text
+        except requests.exceptions.RequestException as e:
+            print(f"Erro ao buscar a URL {url}: {e}")
+            return None
+
+    def parse_news_from_sitemap(self) -> List[Dict[str, str]]:
+        """
+        Analisa o sitemap XML e extrai a lista de notícias (link, título, data).
+        """
+        print("Buscando e analisando o sitemap XML...")
+        xml_content = self._fetch_content(self.sitemap_url)
+        if not xml_content:
+            return []
+
+        root = ET.fromstring(xml_content)
+        noticias_extraidas = []
+
+        for url_element in root.findall('sitemap:url', self.namespaces):
+            news_element = url_element.find('news:news', self.namespaces)
+            if news_element is not None:
+                link = url_element.find('sitemap:loc', self.namespaces).text
+                titulo = news_element.find('news:title', self.namespaces).text
+                data_publicacao = news_element.find('news:publication_date', self.namespaces).text
+                
+                noticia = {
+                    "link": link,
+                    "titulo": titulo,
+                    "data_publicacao": data_publicacao
+                }
+                noticias_extraidas.append(noticia)
+                
+        return noticias_extraidas
+
+    def extract_article_content(self, article_url: str) -> Optional[str]:
+        """
+        Extrai o texto principal do corpo de um artigo de notícia.
+
+        Args:
+            article_url (str): A URL do artigo.
+
+        Returns:
+            Optional[str]: O texto limpo do artigo ou None se não for encontrado.
+        """
+        html_content = self._fetch_content(article_url)
+        if not html_content:
+            return None
+        
+        soup = BeautifulSoup(html_content, 'lxml')
+        
+        # 1. Encontrar o contêiner principal do conteúdo
+        content_div = soup.find('div', class_='entry-content-inner')
+        
+        if not content_div:
+            print(f"Não foi possível encontrar o container de conteúdo para a URL: {article_url}")
+            return None
+            
+        # 2. Remover elementos indesejados (anúncios, scripts, etc.)
+        for ad_div in content_div.find_all('div', class_='ad-wrapper'):
+            ad_div.decompose() # .decompose() remove a tag e seu conteúdo da árvore
+        for aff_div in content_div.find_all('div', class_=['aff-primary', 'aff-secondary', 'aff-ternary']):
+            aff_div.decompose()
+        for script_tag in content_div.find_all('script'):
+            script_tag.decompose()
+        for style_tag in content_div.find_all('style'):
+            style_tag.decompose()
+        for disclaimer in content_div.find_all('div', id=lambda x: x and x.startswith('bic-c-disclimer')):
+            disclaimer.decompose()
+            
+        # 3. Juntar todo o texto dos parágrafos, títulos e citações restantes
+        text_parts = []
+        # Encontra todas as tags de texto relevantes na ordem em que aparecem
+        for element in content_div.find_all(['p', 'h2', 'blockquote']):
+             # .get_text(strip=True) remove espaços em branco extras do início e fim
+            text_parts.append(element.get_text(strip=True))
+            
+        # Junta todas as partes com duas quebras de linha para melhor legibilidade
+        return "\n\n".join(text_parts)
+
+    def run(self, limit: Optional[int] = None, somente_hoje: bool = False) -> List[Dict[str, any]]:
+        """
+        Orquestra todo o processo de scraping com filtros opcionais.
+        
+        Args:
+            limit (Optional[int]): O número máximo de artigos para processar.
+            somente_hoje (bool): Se True, filtra para processar apenas artigos
+                                 publicados na data de hoje.
+        """
+        print("Iniciando o processo... Buscando notícias do sitemap.")
+        lista_inicial = self.parse_news_from_sitemap()
+
+        if not lista_inicial:
+            print("Nenhuma notícia encontrada no sitemap. Finalizando.")
+            return []
+
+        # --- LÓGICA DE FILTRO DE DATA ADICIONADA ---
+        if somente_hoje:
+            print("Filtro 'somente_hoje' ativado.")
+            data_hoje_str = date.today().isoformat() # Formato: 'AAAA-MM-DD'
+            
+            noticias_filtradas = []
+            for noticia in lista_inicial:
+                # Pega apenas a parte da data da string de publicação (os 10 primeiros caracteres)
+                data_noticia_str = noticia['data_publicacao'][:10]
+                if data_noticia_str == data_hoje_str:
+                    noticias_filtradas.append(noticia)
+            
+            print(f"Encontradas {len(noticias_filtradas)} notícias com a data de hoje ({data_hoje_str}).")
+            lista_processar = noticias_filtradas
+        else:
+            lista_processar = lista_inicial
+
+        if not lista_processar:
+            print("Nenhuma notícia corresponde aos filtros. Finalizando.")
+            return []
+
+        if limit:
+            print(f"Aplicando limite para processar as primeiras {min(limit, len(lista_processar))} notícias.")
+            lista_processar = lista_processar[:limit]
+        
+        # O resto do processo continua com a lista já filtrada
+        dados_completos = []
+        total = len(lista_processar)
+        for i, noticia in enumerate(lista_processar, 1):
+            print(f"\n[Notícia {i}/{total}] Extraindo conteúdo de: {noticia['titulo']}")
+            conteudo = self.extract_article_content(noticia['link'])
+            
+            if conteudo:
+                noticia['conteudo'] = conteudo
+                print("-> Extração bem-sucedida.")
+                ollama_sumarize = SumarizeAnalyzeOllama()
+                resumo, sentimento = ollama_sumarize.summarize_and_analyze_with_ollama(noticia["conteudo"])
+                markdown = EscaparMarkdown(resumo)
+                resumo_escapado = markdown.escapar_markdown_v2()
+                noticia['resumo'] = resumo_escapado
+                noticia['sentimento'] = sentimento
+            else:
+                noticia['conteudo'] = "FALHA NA EXTRAÇÃO"
+                print("-> Falha ao extrair o conteúdo.")
+            
+            dados_completos.append(noticia)
+        
+        print("\nProcesso de scraping finalizado!")
+        return dados_completos
+
+class FearGreedIndex:
+    """
+    Uma classe para buscar, processar e formatar os dados do 
+    índice "Fear & Greed" para o Telegram.
+    """
+    def __init__(self):
+        """
+        Inicializa a classe com os dados da API e os atributos de dados.
+        """
+        self._api_url = 'https://api.coin-stats.com/v2/fear-greed'
+        self._headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        
+        # Atributos para armazenar os dados após a busca
+        self.valor_atual: Optional[int] = None
+        self.classificacao: Optional[str] = None
+        self.valor_ontem: Optional[int] = None
+
+    def _fetch_data(self) -> bool:
+        """
+        Busca os dados da API e os armazena nos atributos da instância.
+        Retorna True em caso de sucesso e False em caso de falha.
+        """
+        try:
+            response = requests.get(self._api_url, headers=self._headers, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            # Armazena os dados nos atributos da instância
+            self.valor_atual = data["now"]["value"]
+            self.classificacao = data["now"]["value_classification"]
+            self.valor_ontem = data["yesterday"]["value"]
+            
+            print("✅ Dados do Fear & Greed obtidos com sucesso!")
+            return True
+            
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Erro de conexão com a API: {e}")
+            return False
+        except requests.exceptions.JSONDecodeError:
+            print("❌ Erro: A resposta da API não é um JSON válido.")
+            return False
+        except KeyError as e:
+            print(f"❌ Erro: Estrutura de dados inesperada. Chave não encontrada: {e}")
+            return False
+        except Exception as e:
+            print(f"😕 Ocorreu um erro inesperado: {e}")
+            return False
+
+    def _format_message(self) -> str:
+        """
+        Cria a mensagem formatada usando os dados armazenados nos atributos.
+        """
+        # Dicionário de emojis
+        emojis = {
+            "extreme fear": "🥶", "fear": "😨", "neutral": "😐",
+            "greed": "😏", "extreme greed": "🤑"
+        }
+        emoji_atual = emojis.get(self.classificacao.lower(), "📊")
+
+        # Comparação com o dia anterior
+        if self.valor_atual > self.valor_ontem:
+            comparacao = f"Subiu desde ontem 📈"
+        elif self.valor_atual < self.valor_ontem:
+            comparacao = f"Desceu desde ontem 📉"
+        else:
+            comparacao = f"Estável ↔️"
+        
+        # Escapa a classificação para o Markdown do Telegram
+        markdown = EscaparMarkdown(self.classificacao)
+        classificacao_escapada = markdown.escapar_markdown_v2()
+
+        # Monta a mensagem final
+        mensagem = (
+            f"{emoji_atual} *Fear & Greed Index* {emoji_atual}\n\n"
+            f"👉 *Agora:* {self.valor_atual}/100 \\- *{classificacao_escapada}*\n"
+            f"🗓️ *Ontem:* {self.valor_ontem}\n\n"
+            f"{comparacao}"
+        )
+        return mensagem
+
+    def obter_mensagem_formatada(self) -> Optional[str]:
+        """
+        Orquestra o processo: busca os dados e, se bem-sucedido, formata a mensagem.
+        Este é o único método que o usuário da classe precisa chamar.
+        """
+        # Etapa 1: Tenta buscar os dados da API
+        if self._fetch_data():
+            # Etapa 2: Se a busca foi bem-sucedida, formata e retorna a mensagem
+            return self._format_message()
+        else:
+            # Etapa 3: Se falhou, retorna None
+            print("Não foi possível gerar a mensagem devido a um erro anterior.")
+            return None
+          
+class ScraperCointelegraph:
     """
     Uma classe para buscar, processar, resumir e analisar o sentimento de notícias
     de uma fonte específica (inicialmente Cointelegraph).
@@ -48,7 +613,6 @@ class NewsProcessor:
 
     def __init__(self,
                  sitemap_url="https://cointelegraph.com/sitemap-google-news.xml",
-                 ollama_model="gemma3:12b", # Atualizado conforme seu código
                  max_news_to_process=1,
                  request_headers=None):
         """
@@ -62,13 +626,11 @@ class NewsProcessor:
                                               Usa DEFAULT_REQUEST_HEADERS se None.
         """
         self.sitemap_url = sitemap_url
-        self.ollama_model = ollama_model
         self.max_news_to_process = max_news_to_process
         self.request_headers = request_headers if request_headers else self.DEFAULT_REQUEST_HEADERS
         
         print(f"NewsProcessor inicializado com:")
         print(f"  Sitemap URL: {self.sitemap_url}")
-        print(f"  Ollama Model: {self.ollama_model}")
         print(f"  Max News to Process: {self.max_news_to_process}")
 
     def _get_news_from_sitemap(self):
@@ -197,114 +759,6 @@ class NewsProcessor:
             print(f"    Erro inesperado ao processar {article_url} para extração de texto: {e}")
         return ""
 
-    def _summarize_and_analyze_with_ollama(self, text):
-        """
-        Envia o texto para o Ollama para resumo e análise de sentimento.
-        Interno à classe, usa self.ollama_model.
-
-        Args:
-            text (str): O texto a ser resumido e analisado.
-
-        Returns:
-            tuple: (resumo, sentimento) ou (mensagem_de_erro_resumo, "N/A")
-        """
-        if not text or not text.strip():
-            print("    Texto vazio fornecido para resumo. Pulando.")
-            return "Não foi possível extrair conteúdo para resumo.", "N/A"
-
-        print(f"      Enviando texto para o modelo Ollama '{self.ollama_model}' para resumo e sentimento...")
-        
-        prompt_resumo = f"""Por favor, resuma o seguinte texto de notícia em português, em aproximadamente 3 frases.
-                            O resumo deve ser pronto para ser postado em um canal de rede social.
-                            Se o texto for muito curto, irrelevante ou não for uma notícia financeira/cripto, indique isso com uma mensagem de erro: "ERRO!".
-
-                            Texto da notícia:
-                            ---
-                            {text[:5000]} 
-                            ---"""
-        resumo = "ERRO! Falha ao gerar resumo inicial."
-        sentimento = "N/A" # Valor padrão
-
-        try:
-            response_resumo = ollama.generate(
-                model=self.ollama_model,
-                prompt=prompt_resumo,
-                options={"temperature": 0.3}
-            )
-            resumo = response_resumo['response'].strip()
-            
-            if not resumo or "ERRO!" in resumo: # Verificando se o resumo indica um erro
-                print("Resumo inválido ou erro detectado pelo modelo. Não prosseguindo para análise de sentimento.")
-                return resumo if resumo else "ERRO! O texto não é relevante ou não pôde ser resumido adequadamente.", "N/A"
-            else:
-                prompt_editor = f"""
-                        Você é um editor de conteúdos experiente, especializado em criar posts altamente engajadores para redes sociais.
-
-                        Sua tarefa é analisar o texto fornecido abaixo e transformá-lo em um post otimizado e pronto para ser publicado no aplicativo Telegram. O objetivo é maximizar a clareza, o engajamento e a facilidade de leitura.
-
-                        Instruções Detalhadas:
-                        1.  **Linguagem e Tom:** Utilize português do Brasil. O tom deve ser amigável. Adapte a linguagem para ser de fácil entendimento pelo público geral.
-                        2.  **Sem Título:** O post final NÃO deve conter um título explícito.
-                        3.  **Estrutura e Formato:**
-                            * Divida o texto em parágrafos curtos para facilitar a leitura em dispositivos móveis.
-                            * Use 1 emojis relevantes para tornar o post mais visual e expressivo.
-                        4.  **Engajamento:**
-                            * Caso a notícia envolva algum criptomoeda use uma hashtag com o nome dela.
-                        5.  **Conteúdo e Alterações:**
-                            * Preserve a mensagem central e as informações mais importantes do texto.
-                            * Realize as alterações necessárias para melhorar a fluidez, concisão e impacto do texto. Corrija eventuais erros gramaticais ou ortográficos.
-                        6.  **Resultado Final:** Apresente apenas a versão final do texto do post. Se houver múltiplas formas de reescrever, escolha aquela que for mais coerente, impactante e de fácil entendimento.
-
-                        Texto a ser transformado:
-                        {resumo}"""
-                
-                response_resumo_editor = ollama.generate(
-                model=self.ollama_model,
-                prompt=prompt_editor,
-                options={"temperature": 0.3}
-                )
-                resumo_final = response_resumo_editor['response'].strip()
-                print(f"Resumo recebido: {resumo_final}")
-
-            # Se o resumo foi bem-sucedido, prossegue para análise de sentimento
-            prompt_sentimento = f"""Você é um analista de sentimento especializado em notícias. Sua tarefa é ler o resumo da notícia fornecida abaixo e classificar o sentimento predominante nele em uma escala numérica de 0 a 10.
-
-                                Considere a seguinte escala para sua avaliação:
-                                * **0:** Notícia extremamente negativa, péssima, desastrosa.
-                                * **1-2:** Notícia muito negativa.
-                                * **3-4:** Notícia negativa.
-                                * **5:** Notícia neutra ou mista.
-                                * **6-7:** Notícia positiva.
-                                * **8-9:** Notícia muito positiva.
-                                * **10:** Notícia extremamente positiva, excelente.
-
-                                Analise cuidadosamente o conteúdo do resumo abaixo. Forneça **apenas o número** da sua avaliação (0-10).
-
-                                Resumo da notícia:
-                                "{resumo_final}"
-
-                                Avaliação (0-10):"""
-
-            response_sentimento = ollama.generate(
-                model=self.ollama_model, # Pode usar o mesmo modelo ou um específico para classificação
-                prompt=prompt_sentimento,
-                options={"temperature": 0.1} # Temperatura muito baixa para classificação precisa
-            )
-            sentimento = response_sentimento['response'].strip()
-            print(f"      Sentimento recebido: {sentimento}")
-            # Validar se o sentimento é um número, opcionalmente
-            try:
-                int(sentimento) # Apenas para verificar se é conversível
-            except ValueError:
-                print(f"AVISO: Sentimento recebido não é um número simples: '{sentimento}'. Usando como está.")
-
-            return resumo_final, sentimento
-        
-        except Exception as e:
-            print(f"      Erro ao comunicar com Ollama: {e}")
-            print(f"      Verifique se o Ollama está rodando e o modelo '{self.ollama_model}' está disponível ('ollama list').")
-            return "Erro ao gerar resumo/sentimento via Ollama.", sentimento # Retorna o sentimento que pode ter sido obtido, ou N/A
-
     def _save_summaries_to_csv(self, summaries, csv_filename):
         """Salva uma lista de resumos em um arquivo CSV."""
         if not summaries:
@@ -403,7 +857,6 @@ class NewsProcessor:
                          # este 'elif' pode não ser necessário.
                          pass
 
-
                     news_publication_date_obj = datetime.fromisoformat(publication_date_str_adjusted)
                     
                     if news_publication_date_obj.tzinfo is None:
@@ -427,7 +880,8 @@ class NewsProcessor:
 
                 if article_text.strip():
                     # Passar o nome do modelo explicitamente se necessário ou usar o self.ollama_model
-                    article_summary, sentimento_artigo = self._summarize_and_analyze_with_ollama(article_text)
+                    ollama_sumarize = SumarizeAnalyzeOllama()
+                    article_summary, sentimento_artigo = ollama_sumarize.summarize_and_analyze_with_ollama(article_text)
                 else:
                     print(f"Texto do artigo de '{item['original_article_url']}' está vazio. Pulando resumo e análise.")
 
@@ -442,7 +896,7 @@ class NewsProcessor:
                 }
                 all_summaries.append(summary_data)
             else:
-                print(f"  -> Notícia FORA do limite de {hours_limit} hora(s) (publicada em {news_publication_date_obj.strftime('%Y-%m-%d %H:%M:%S %Z')}). Ignorando.")
+                print(f"-> Notícia FORA do limite de {hours_limit} hora(s) (publicada em {news_publication_date_obj.strftime('%Y-%m-%d %H:%M:%S %Z')}). Ignorando.")
 
         if processed_count == 0 and len(sitemap_news_items) > 0:
             print(f"\nNenhuma notícia encontrada dentro do limite de {hours_limit} hora(s) das {len(sitemap_news_items)} notícias verificadas do sitemap.")
@@ -451,114 +905,17 @@ class NewsProcessor:
             print("Nenhum resumo foi gerado (ou nenhuma notícia passou no filtro de tempo).")
             #return [] # Já retorna all_summaries que estará vazio
 
-        # Saída dos resultados
-        if output_format in ['print', 'all']:
-            self._print_summaries(all_summaries)
-        
-        if output_format in ['csv', 'all']:
-            self._save_summaries_to_csv(all_summaries, csv_filename)
-        
-        return all_summaries
-
-    def extract_fear_greed(self):
-        """
-        Busca os dados do índice "Fear & Greed" da API coin-stats,
-        trata possíveis erros de conexão, HTTP e de dados.
-        """
-        url= 'https://api.coin-stats.com/v2/fear-greed'
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-        }
-        try:
-            # 1. Tenta fazer a requisição para a API
-            response = requests.get(url, headers=headers, timeout=10) # Adicionado timeout
-
-            # 2. Verifica se a requisição foi bem-sucedida (códigos 2xx)
-            # Se ocorrer um erro de cliente (4xx) ou servidor (5xx), isso levantará uma exceção.
-            response.raise_for_status()
-
-            # 3. Tenta decodificar a resposta JSON
-            data = response.json()
-
-            # 4. Tenta acessar as chaves no dicionário
-            atual = data["now"]["value"]
-            classificacao = data["now"]["value_classification"]
-            ontem = data["yesterday"]["value"]
-            semana_passada = data["lastWeek"]["value"]
-
-            # Se tudo deu certo, imprime os resultados
-            print("--- Índice Fear & Greed ---")
-            print(f"Valor atual: {atual} ({classificacao})")
-            print(f"Ontem: {ontem}")
-            print(f"Semana passada: {semana_passada}")
-            print("---------------------------")
-            return atual, classificacao, ontem
-        
-        except requests.exceptions.RequestException as e:
-            # Captura erros de conexão, timeout, DNS, etc.
-            print(f"❌ Erro de conexão com a API: {e}")
-
-        except requests.exceptions.JSONDecodeError:
-            # Captura erro se a resposta não for um JSON válido
-            print("❌ Erro: A resposta da API não está no formato JSON esperado.")
-
-        except KeyError as e:
-            # Captura erro se uma chave esperada não for encontrada no JSON
-            print(f"❌ Erro: A estrutura dos dados mudou. Chave não encontrada: {e}")
-
-        except Exception as e:
-            # Captura qualquer outro erro inesperado
-            print(f"😕 Ocorreu um erro inesperado: {e}")
-
-    def escapar_markdown_v2(self, texto: str) -> str:
-        """
-        Escapa todos os caracteres reservados do MarkdownV2 do Telegram.
-        """
-        self.texto = texto
-        # A lista de caracteres que precisam ser escapados
-        caracteres_reservados = r"[_*\[\]()~`>#+\-=|{}.!]"
-        
-        # Usa a função re.sub() para adicionar uma '\' antes de cada caractere reservado
-        return re.sub(f'({caracteres_reservados})', r'\\\1', texto)
-
-    def formatar_mensagem_fear_greed(self, atual: int, classificacao: str, ontem: int) -> str:
-        """
-        Cria uma mensagem formatada e dinâmica para o índice Fear & Greed.
-        """
-        self.atual = atual
-        self.classificacao = classificacao
-        self.ontem = ontem
-
-        classificacao_escapada = self.escapar_markdown_v2(texto = self.classificacao)
-
-        # Dicionário de emojis para cada classificação
-        emojis = {
-            "extreme fear": "🥶",
-            "fear": "😨",
-            "neutral": "😐",
-            "greed": "😏",
-            "extreme greed": "🤑"
-        }
-        # Pega o emoji correspondente, ou um padrão caso a classificação não seja encontrada
-        emoji_atual = emojis.get(self.classificacao.lower(), "📊")
-
-        # Compara o valor atual com o de ontem
-        comparacao = ""
-        if self.atual > self.ontem:
-            self.comparacao = f"Subiu desde ontem 📈"
-        elif self.atual < ontem:
-            self.comparacao = f"Desceu desde ontem 📉"
+        resumos_noticias = []
+        if all_summaries:
+            for r in all_summaries:
+                resumo = r['resumo']
+                markdown = EscaparMarkdown(resumo)
+                resumo_escapado = markdown.escapar_markdown_v2()
+                # Envia a mensagem formatada para o Telegram
+                resumos_noticias.append(resumo_escapado)
+                return resumos_noticias
         else:
-            self.comparacao = f"Estável ↔️"
-        
-        # Monta a mensagem final (não esqueça de escapar os caracteres para o MarkdownV2)
-        mensagem = (
-            f"{emoji_atual} *Fear & Greed Index* {emoji_atual}\n\n"
-            f"👉 *Agora:* {self.atual} \\- *{classificacao_escapada}*\n"
-            f"🗓️ *Ontem:* {self.ontem}\n\n"
-            f"{self.comparacao}"
-        )
-        return mensagem
+            logger.info("Nenhuma notícia encontrada para enviar.")
 
 class EconomicEventsError(Exception):
     """Exceção personalizada para erros na classe EconomicEvents."""
@@ -774,6 +1131,83 @@ class EconomicEvents:
             # Caso o loop termine sem exceções mas não retorne (improvável com a lógica atual)
             raise EconomicEventsError(f"{error_message} Motivo desconhecido.")
 
+    def escapar_markdown(self, texto: str) -> str:
+        """
+        Escapa os caracteres reservados do MarkdownV2 do Telegram.
+
+        Args:
+            texto (str): O texto a ser escapado.
+
+        Returns:
+            str: O texto com os caracteres especiais escapados.
+        """
+        # Converte para string para garantir que podemos usar o .replace()
+        texto = str(texto)
+        
+        # Caracteres que precisam ser escapados no MarkdownV2 do Telegram
+        caracteres_reservados = r"([_*\[\]()~`>#+\-=|{}.!])"
+        
+        # Usa a função re.sub para encontrar e substituir cada caractere reservado
+        # por sua versão escapada (ex: '.' se torna '\.')
+        return re.sub(caracteres_reservados, r"\\\1", texto)
+
+
+    def formatar_mensagem_telegram(self, df):
+        """
+        Formata um DataFrame de calendário econômico em uma mensagem 100% segura para o Telegram.
+        Versão com separador corrigido.
+        """
+        if df.empty:
+            return "Nenhum dado econômico para hoje."
+
+        mensagens_por_hora = []
+        eventos_agrupados = df.groupby('hora')
+
+        for hora, grupo in eventos_agrupados:
+            horario_formatado = pd.to_datetime(hora).strftime('%H:%M')
+            header = f"🗓️ *Calendário Econômico \- {horario_formatado}* 🗓️\n\n"
+            mensagens_por_hora.append(header)
+
+            for index, evento in grupo.iterrows():
+                titulo = self.escapar_markdown(evento['title'].strip())
+                atual = self.escapar_markdown(evento['actual'])
+                projecao = self.escapar_markdown(evento['forecast'])
+                anterior = self.escapar_markdown(evento['previous'])
+                
+                icone_importancia = "🔴"
+
+                # !! CORREÇÃO FINAL APLICADA AQUI !!
+                # Usando o caractere 'Box Drawings Light Horizontal' que não é reservado.
+                separador = "────────────────────\n"
+
+                info_evento = (
+                    f"*{titulo}*\n"
+                    f"Resultado: *{atual}*\n"
+                    f"Projeção: {projecao}\n"
+                    f"Anterior: {anterior}\n"
+                    f"Importância: {icone_importancia}\n"
+                    f"{separador}"
+                )
+                mensagens_por_hora.append(info_evento)
+        
+        return "".join(mensagens_por_hora)
+
+    def gerar_relatório_telegram(self):
+        
+        print("\n--- Eventos importantes ---")
+        try:
+            df_events_default = self.get_economic_events()
+            if df_events_default is not None and not df_events_default.empty:
+                mensagem = self.formatar_mensagem_telegram(df_events_default)
+                print(mensagem)
+                return mensagem
+            elif df_events_default is not None: # DataFrame vazio
+                print("Nenhum evento encontrado (Padrão).")
+        except EconomicEventsError as e:
+            print(f"Erro ao buscar eventos (Padrão): {e}")
+            if e.__cause__:
+                print(f"Causa original: {type(e.__cause__).__name__} - {e.__cause__}")
+
 class TelegramNotifier:
     """
     Uma classe robusta para enviar notificações para o Telegram.
@@ -841,6 +1275,45 @@ class TelegramNotifier:
             logger.error(f"😕 Ocorreu um erro inesperado: {e}", exc_info=True) # exc_info=True mostra o traceback
             return False
 
+    async def enviar_imagem(self, 
+                            caminho_imagem = "outputs/images/crypto_treemap_ajustado.png", 
+                            legenda = "📊 *Heatmap Cripto atualizado!*", 
+                            target_chat_id: str = None) -> bool:
+        """
+        Envia uma imagem (foto) para um chat do Telegram.
+
+        Args:
+            caminho_imagem (str): Caminho absoluto ou relativo da imagem.
+            legenda (str, optional): Legenda para acompanhar a imagem.
+            target_chat_id (str, optional): Chat ID de destino. Usa o padrão se não for fornecido.
+
+        Returns:
+            bool: True se enviada com sucesso, False se falhou.
+        """
+        chat_id_to_use = target_chat_id or self.default_chat_id
+
+        if not chat_id_to_use:
+            logger.error("Nenhum CHAT_ID de destino foi definido (nem padrão, nem via argumento).")
+            return False
+
+        try:
+            with open(caminho_imagem, 'rb') as photo:
+                await self.bot.send_photo(
+                    chat_id=chat_id_to_use,
+                    photo=photo,
+                    caption=legenda,
+                    parse_mode='Markdown'
+                )
+            logger.info("📸 Imagem enviada com sucesso!")
+            return True
+
+        except telegram.error.TelegramError as e:
+            logger.error(f"❌ Falha ao enviar imagem: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"😕 Erro inesperado ao enviar imagem: {e}", exc_info=True)
+            return False
+        
 class ScraperCoinranking:
     """
     Uma classe para fazer scraping da página de 'gainers' do Coinranking
@@ -984,7 +1457,7 @@ class ScraperCoinranking:
         print("--- PROCESSO FINALIZADO COM SUCESSO ---")
         return mensagem_final
 
-####para scraping de notícias ==== https://br.beincrypto.com/news-sitemap.xml
+
 async def main():
     """Função principal que orquestra todo o processo."""
     print("Executando o processo de notícias e notificação...\n")
@@ -993,70 +1466,65 @@ async def main():
         # Inicializa o notificador do Telegram
         notifier = TelegramNotifier()
 
-        # Verifica eventos importantes
+        # PROCESSO 1 - Verifica eventos importantes
         events_client = EconomicEvents()
-        print("\n--- Eventos importantes ---")
-        try:
-            df_events_default = events_client.get_economic_events()
-            if df_events_default is not None and not df_events_default.empty:
-                print(f"Eventos encontrados (Padrão):\n{df_events_default}")
-            elif df_events_default is not None: # DataFrame vazio
-                print("Nenhum evento encontrado (Padrão).")
-        except EconomicEventsError as e:
-            print(f"Erro ao buscar eventos (Padrão): {e}")
-            if e.__cause__:
-                print(f"Causa original: {type(e.__cause__).__name__} - {e.__cause__}")
+        mensagem_eventos_economicos = events_client.gerar_relatório_telegram()
+        await notifier.enviar_mensagem(mensagem_eventos_economicos)
         
-        # verifica top gainers e losers
+        # PROCESSO 2 - cria o relatório Heatmap
+        heatmap = HeatMap()
+        heatmap.create_crypto_treemap()
+        await notifier.enviar_imagem()
+    
+        # PROCESSO 3 - verifica top gainers e losers
         tipo = ['gainers', 'losers']
         for t in tipo:
             url = f"https://coinranking.com/coins/{t}"
             
             # 2. Crie uma instância da sua classe
-            meu_scraper = ScraperCoinranking(url=url)
+            gainers_losers = ScraperCoinranking(url=url)
             
             # 3. Chame APENAS o método orquestrador
-            relatorio_final = meu_scraper.gerar_relatorio_telegram()
+            relatorio_final = gainers_losers.gerar_relatorio_telegram()
 
             # 4. Use o resultado
             print(f"\n--- MENSAGEM FINAL PRONTA PARA ENVIAR TIPO {t.upper()} ---")
             print(relatorio_final)
             await notifier.enviar_mensagem(relatorio_final)
 
-        # Verifica e envia notícias
-        # Configurações do seu scraper
-        meu_modelo_ollama = "gemma3:12b"
+        # PROCESSO 4 - Captura e envia o índice "Fear & Greed" e envia a mensagem
+        feargreed = FearGreedIndex()
+        mensagem = feargreed.obter_mensagem_formatada()
+        await notifier.enviar_mensagem(mensagem)
+
+        # PROCESSO 5 - Verifica e envia notícias
+        # Configurações do seu scraper do site Cointelegraph
         maximo_noticias = 1
         limite_horas_recentes = 24
 
-        # Cria uma instância do processador de notícias
-        processor = NewsProcessor(
+        # Cria uma instância do processador de notícias do site Cointelegraph
+        processor = ScraperCointelegraph(
             sitemap_url="https://cointelegraph.com/sitemap-google-news.xml",
-            ollama_model=meu_modelo_ollama,
             max_news_to_process=maximo_noticias
         )
-        # Processa as notícias
         resultados = processor.process_news(
             output_format='list',
             csv_filename='noticias_cripto_processadas.csv',
             hours_limit=limite_horas_recentes
         )
-
-        # Captura e envia o índice "Fear & Greed" e envia a mensagem
-        atual, classificacao, ontem = processor.extract_fear_greed()
-        mensagem = processor.formatar_mensagem_fear_greed(atual, classificacao, ontem)
-        await notifier.enviar_mensagem(mensagem)
-
-        # Formata a mensagem com os resultados
         if resultados:
             for r in resultados:
-                resumo = r['resumo']
-                resumo_escapado = processor.escapar_markdown_v2(texto = resumo)
                 # Envia a mensagem formatada para o Telegram
-                await notifier.enviar_mensagem(resumo_escapado)
+                await notifier.enviar_mensagem(r)
         else:
             logger.info("Nenhuma notícia encontrada para enviar.")
- 
+
+        # PROCESSO 6 - Cria uma instância do processador de notícias do site Beincrypto
+        scraper = ScraperBeincrypto()
+        dados_de_hoje = scraper.run(somente_hoje=True, limit=1)
+        for n in dados_de_hoje:
+            await notifier.enviar_mensagem(n['resumo'])
+
         print("\nProcesso finalizado com sucesso!")
 
     except ValueError as e:
@@ -1067,89 +1535,3 @@ async def main():
 if __name__ == "__main__":
     
     asyncio.run(main())
-
-# # --- Exemplo de como usar a classe ---
-# if __name__ == "__main__":
-#     print("Executando Exemplo de NewsProcessor...\n")
-
-#     # Configurações
-#     meu_modelo_ollama = "gemma3:12b"  # Mude para o seu modelo Ollama disponível
-#     maximo_noticias = 10       # Quantas notícias do sitemap processar no máximo (independente do filtro de tempo)
-#     limite_horas_recentes = 24  # Considerar notícias das últimas X horas
-
-#     # Criar uma instância do processador
-#     # Você pode testar diferentes modelos ou sitemaps aqui
-#     processor = NewsProcessor(
-#         sitemap_url="https://cointelegraph.com/sitemap-google-news.xml", # Ou "https://br.cointelegraph.com/sitemap-google-news.xml" para pt-BR
-#         ollama_model=meu_modelo_ollama,
-#         max_news_to_process=maximo_noticias
-#     )
-
-#     # Processar as notícias e obter os resultados
-#     # Opções de output_format: 'print', 'csv', 'list', 'all'
-#     resultados = processor.process_news(
-#         output_format='csv',  # Mude para 'csv', 'print', 'list', ou 'all' conforme necessário
-#         # Se 'csv' ou 'all', o arquivo será salvo com este nome
-#         csv_filename='noticias_cripto_processadas.csv',
-#         hours_limit=limite_horas_recentes
-#     )
-
-#     if resultados:
-#         print(f"\n{len(resultados)} notícias foram processadas e retornadas (dentro do limite de tempo e max_news_to_process).")
-#         #Você pode fazer algo mais com os 'resultados' aqui se output_format='list' ou 'all'
-#         print("\nDados retornados:")
-#         for r in resultados:
-#             print(f"  - Título: {r['titulo']}, Sentimento: {r['sentimento']}")
-#     else:
-#         print("\nNenhuma notícia foi processada ou retornada.")
-    
-#     processor.extract_fear_greed()
-    # asyncio.run(enviar_mensagem(mensagem_para_enviar))
-
-# # --- Como Usar a Nova Classe TelegramNotifier---
-# async def main():
-#     """Função principal para demonstrar o uso da classe."""
-#     try:
-#         # 1. Cria uma instância da classe (ela carrega tudo do .env automaticamente)
-#         notifier = TelegramNotifier()
-
-#         # 2. Envia uma mensagem para o chat padrão
-#         mensagem1 = "Esta é a primeira mensagem de teste usando a classe robusta\\."
-#         sucesso = await notifier.enviar_mensagem(mensagem1)
-#         if sucesso:
-#             print("Demonstração 1: Sucesso!")
-#         else:
-#             print("Demonstração 1: Falha!")
-            
-#         print("-" * 20)
-
-#         # 3. Envia uma mensagem para um OUTRO chat, especificando o ID na chamada
-#         # Descomente a linha abaixo e substitua pelo ID de outro grupo para testar
-#         # await notifier.enviar_mensagem("Esta mensagem vai para outro lugar\\!", target_chat_id="-9876543210")
-
-#     except ValueError as e:
-#         # Se o token não for encontrado na inicialização, o erro será capturado aqui
-#         logger.error(e)
-
-# if __name__ == "__main__":
-#     asyncio.run(main())
-
-# Exemplo de uso (para testar):
-# if __name__ == '__main__':
-#     # Configuração de logging mais detalhada para teste
-#     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    
-#     events_client = EconomicEvents()
-    
-#     # Teste 1: Padrão (hoje + 6h até dia seguinte 0h, países padrão US)
-#     print("\n--- Teste 1: Padrão ---")
-#     try:
-#         df_events_default = events_client.get_economic_events()
-#         if df_events_default is not None and not df_events_default.empty:
-#             print(f"Eventos encontrados (Padrão):\n{df_events_default.head()}")
-#         elif df_events_default is not None: # DataFrame vazio
-#              print("Nenhum evento encontrado (Padrão).")
-#     except EconomicEventsError as e:
-#         print(f"Erro ao buscar eventos (Padrão): {e}")
-#         if e.__cause__:
-#              print(f"  Causa original: {type(e.__cause__).__name__} - {e.__cause__}")
