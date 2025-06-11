@@ -4,11 +4,15 @@ import ollama
 import pandas as pd
 from binance_server import BinanceGetTechnicalIndicators, BinanceGetPrice, BinanceListCryptosByPrice, parse_llm_response
 import ast
-from utils.tools import avaliar_btc, salvar_resultados_csv, escolher_top_cryptos, simular_compra_tempo_real, gerando_predição_tempo_real, create_folder, get_historical_klines, analisar_predicoes, calculando_lucro_prej_operacao, calculando_taxa_acerto_erro, criando_relatorio_xlsx, simular_trade_compra_com_csv
+import sys
 import os
 from binance.client import Client
 import ta
 from ta.trend import MACD
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+sys.path.append(project_root)
+from utils.tools import avaliar_btc, salvar_resultados_csv, escolher_top_cryptos, simular_compra_tempo_real, gerando_predição_tempo_real, create_folder, get_historical_klines, analisar_predicoes, calculando_lucro_prej_operacao, calculando_taxa_acerto_erro, criando_relatorio_xlsx, simular_trade_compra_com_csv
 
 class Backtest:
     

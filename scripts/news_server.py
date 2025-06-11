@@ -1,13 +1,10 @@
 import requests
-from bs4 import BeautifulSoup
 import ollama
 import csv
 from datetime import datetime, timezone
 from urllib.parse import urlparse, urljoin
 from datetime import datetime, timezone, timedelta
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
 import ollama
 import csv
 from datetime import datetime, timezone, timedelta
@@ -20,6 +17,16 @@ import os
 import telegram
 from dotenv import load_dotenv
 import re
+import json
+import time
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+from datetime import datetime
 
 #Configuração necessária para a class EconomicEvents
 logging.basicConfig(
@@ -834,6 +841,149 @@ class TelegramNotifier:
             logger.error(f"😕 Ocorreu um erro inesperado: {e}", exc_info=True) # exc_info=True mostra o traceback
             return False
 
+class ScraperCoinranking:
+    """
+    Uma classe para fazer scraping da página de 'gainers' do Coinranking
+    e formatar um relatório para o Telegram.
+    """
+    def __init__(self, url='https://coinranking.com/coins/gainers'):
+        """
+        O construtor da classe. É executado quando criamos um novo objeto.
+        """
+        self.url = url
+        print(f"ScraperTelegram inicializado para a URL: {self.url}")
+
+    def _carregar_html_da_pagina(self):
+        # Este método é "privado" (convenção do underscore _),
+        # pois só precisa ser usado dentro desta classe.
+        print("Iniciando o navegador com Selenium...")
+        options = webdriver.ChromeOptions()
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+        try:
+            driver.get(self.url)
+            print(f"Página {self.url} carregada.")
+            wait = WebDriverWait(driver, 20)
+            wait.until(EC.presence_of_element_located((By.TAG_NAME, 'tbody')))
+            time.sleep(2)
+            print("Conteúdo carregado. Extraindo o HTML...")
+            return driver.page_source
+        except Exception as e:
+            print(f"Ocorreu um erro ao carregar a página com Selenium: {e}")
+            return None
+        finally:
+            driver.quit()
+            print("Navegador fechado.")
+
+    def _extrair_dados_da_tabela(self, html_completo):
+        # Este método também é para uso interno.
+        if not html_completo: return []
+        soup = BeautifulSoup(html_completo, 'html.parser')
+        # ... (lógica de extração completa como antes) ...
+        lista_de_moedas = []
+        tabela_body = soup.find('tbody')
+        if not tabela_body: return []
+        linhas = tabela_body.find_all('tr', id=lambda x: x and x.startswith('coin-'))
+        print(f"Encontradas {len(linhas)} moedas na tabela.")
+        for linha in linhas:
+            rank = linha.select_one("td:nth-of-type(2)").get_text(strip=True)
+            nome = linha.select_one(".coin-profile__name").get_text(strip=True)
+            simbolo = linha.select_one(".coin-profile__symbol").get_text(strip=True)
+            preco = linha.select_one("real-time-price").get_text(strip=True)
+            market_cap_tag = linha.select_one("td.hidden-tablet-landscape.hidden-mobile")
+            market_cap = market_cap_tag.get_text(strip=True) if market_cap_tag else 'N/A'
+            change_24h_tag = linha.select_one(".change__percentage")
+            change_24h = change_24h_tag.get_text(strip=True) if change_24h_tag else 'N/A'
+            lista_de_moedas.append({
+                'rank': rank, 'nome': nome, 'simbolo': simbolo,
+                'preco_usd': preco.replace('$', '').strip(),
+                'market_cap': market_cap.replace('$', '').strip(),
+                'variacao_24h_percent': change_24h.replace('+', '').replace('%', '').strip()
+            })
+        return lista_de_moedas
+
+    def formatar_mensagem_telegram(self, lista_de_moedas, tipo_relatorio="gainers"):
+        """
+        Formata os dados das top 10 moedas para uma mensagem de Telegram,
+        adaptando-se para 'gainers' ou 'losers'.
+        """
+        if not lista_de_moedas:
+            return f"Não foi possível obter os dados para o relatório de '{tipo_relatorio}'."
+
+        top_10 = lista_de_moedas[:10]
+        
+        # 1. Define o título e emoji principal baseado no tipo de relatório
+        if tipo_relatorio.lower() == "losers":
+            titulo_mensagem = "📉 *Top 10 Cripto Losers do Dia* 💔"
+        else: # O padrão é 'gainers'
+            titulo_mensagem = "🏆 *Top 10 Cripto Gainers do Dia* 🚀"
+        
+        mensagem = [titulo_mensagem + "\n"]
+        
+        # Cabeçalho da tabela
+        mensagem.append("```")
+        mensagem.append(f"{'#':<3} {'Símbolo':<8} {'Preço (USD)':<15} {'Variação 24h'}")
+        mensagem.append(f"{'-'*3} {'-'*8} {'-'*15} {'-'*14}")
+
+        # 2. Adiciona cada moeda à mensagem
+        for moeda in top_10:
+            try:
+                rank = moeda['rank']
+                simbolo = moeda['simbolo']
+                preco = float(moeda['preco_usd'])
+                variacao = float(moeda['variacao_24h_percent'])
+                
+                # 3. Escolhe o emoji correto para a variação
+                emoji_variacao = "🟢" if variacao >= 0 else "🔴"
+                
+                # Formata a linha. O f-string `+7.2f` já lida com o sinal de '+' ou '-'.
+                linha = (f"{rank:<3} {simbolo:<8} ${preco:<14,.6f} {variacao:>+7.2f}% {emoji_variacao}")
+                mensagem.append(linha)
+            except (ValueError, TypeError):
+                continue
+                
+        mensagem.append("```")
+
+        # Rodapé
+        agora = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+        # Ajustamos a fonte para ser genérica, pois a classe pode ter URLs diferentes
+        mensagem.append(f"\n_Atualizado em: {agora}_")
+        mensagem.append(f"🔗 _Fonte: Coinranking_")
+
+        return "\n".join(mensagem)
+
+    # ---- O MÉTODO PÚBLICO E ORQUESTRADOR ----
+    def gerar_relatorio_telegram(self):
+        """
+        Este é o único método que precisa ser chamado de fora.
+        Ele orquestra todo o processo.
+        """
+        print("\n--- INICIANDO PROCESSO COMPLETO DE GERAÇÃO DE RELATÓRIO ---")
+        
+        # 1. Carregar a página
+        html = self._carregar_html_da_pagina()
+        if not html:
+            return "Falha ao carregar a página. Relatório não pode ser gerado."
+
+        # 2. Extrair os dados
+        dados = self._extrair_dados_da_tabela(html)
+        if not dados:
+            return "Falha ao extrair dados. Relatório não pode ser gerado."
+        
+        # 3. extrair o texto da url
+        parsed_url = urlparse(self.url)
+        caminho = parsed_url.path
+        tipo = [p for p in caminho.split('/') if p][-1]
+        # 4. Formatar a mensagem
+
+        mensagem_final = self.formatar_mensagem_telegram(dados, tipo)
+        
+        print("--- PROCESSO FINALIZADO COM SUCESSO ---")
+        return mensagem_final
+
 async def main():
     """Função principal que orquestra todo o processo."""
     print("Executando o processo de notícias e notificação...\n")
@@ -842,9 +992,8 @@ async def main():
         # Inicializa o notificador do Telegram
         notifier = TelegramNotifier()
 
+        # Verifica eventos importantes
         events_client = EconomicEvents()
-    
-        # Teste 1: Padrão (hoje + 6h até dia seguinte 0h, países padrão US)
         print("\n--- Eventos importantes ---")
         try:
             df_events_default = events_client.get_economic_events()
@@ -857,6 +1006,23 @@ async def main():
             if e.__cause__:
                 print(f"Causa original: {type(e.__cause__).__name__} - {e.__cause__}")
         
+        # verifica top gainers e losers
+        tipo = ['gainers', 'losers']
+        for t in tipo:
+            url = f"https://coinranking.com/coins/{t}"
+            
+            # 2. Crie uma instância da sua classe
+            meu_scraper = ScraperCoinranking(url=url)
+            
+            # 3. Chame APENAS o método orquestrador
+            relatorio_final = meu_scraper.gerar_relatorio_telegram()
+
+            # 4. Use o resultado
+            print(f"\n--- MENSAGEM FINAL PRONTA PARA ENVIAR TIPO {t.upper()} ---")
+            print(relatorio_final)
+            await notifier.enviar_mensagem(relatorio_final)
+
+        # Verifica e envia notícias
         # Configurações do seu scraper
         meu_modelo_ollama = "gemma3:12b"
         maximo_noticias = 1
@@ -868,15 +1034,14 @@ async def main():
             ollama_model=meu_modelo_ollama,
             max_news_to_process=maximo_noticias
         )
-
-        # Processa as notícias (isso continua sendo uma operação síncrona)
+        # Processa as notícias
         resultados = processor.process_news(
             output_format='list',
             csv_filename='noticias_cripto_processadas.csv',
             hours_limit=limite_horas_recentes
         )
 
-        # Captura e envia o índice "Fear & Greed"
+        # Captura e envia o índice "Fear & Greed" e envia a mensagem
         atual, classificacao, ontem = processor.extract_fear_greed()
         mensagem = processor.formatar_mensagem_fear_greed(atual, classificacao, ontem)
         await notifier.enviar_mensagem(mensagem)
