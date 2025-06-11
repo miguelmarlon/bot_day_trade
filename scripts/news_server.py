@@ -984,6 +984,7 @@ class ScraperCoinranking:
         print("--- PROCESSO FINALIZADO COM SUCESSO ---")
         return mensagem_final
 
+####para scraping de notícias ==== https://br.beincrypto.com/news-sitemap.xml
 async def main():
     """Função principal que orquestra todo o processo."""
     print("Executando o processo de notícias e notificação...\n")
