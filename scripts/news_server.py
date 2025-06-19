@@ -29,8 +29,12 @@ from webdriver_manager.chrome import ChromeDriverManager
 from datetime import datetime, date
 import xml.etree.ElementTree as ET
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+import numpy as np
 import squarify 
 import numpy as np
+import ccxt
+from ta.momentum import RSIIndicator
 
 #Configuração necessária para a class EconomicEvents
 logging.basicConfig(
@@ -177,7 +181,7 @@ class EscaparMarkdown:
         caracteres_reservados = r"[_*\[\]()~`>#+\-=|{}.!]"
         return re.sub(f'({caracteres_reservados})', r'\\\1', self.texto)
 
-class HeatMap():
+class HeatMap:
     """
     Classe para pesquisar as maior moedas do mercado e criar o gráfico Heatmap das 40 maiores.
     """
@@ -913,7 +917,7 @@ class ScraperCointelegraph:
                 resumo_escapado = markdown.escapar_markdown_v2()
                 # Envia a mensagem formatada para o Telegram
                 resumos_noticias.append(resumo_escapado)
-                return resumos_noticias
+            return resumos_noticias
         else:
             logger.info("Nenhuma notícia encontrada para enviar.")
 
@@ -1457,13 +1461,220 @@ class ScraperCoinranking:
         print("--- PROCESSO FINALIZADO COM SUCESSO ---")
         return mensagem_final
 
+class RsiRanking:
+    """
+    Uma classe para fazer calcular o maiores e piores RSI do dia
+    e formatar um relatório para o Telegram.
+    """
+    def __init__(self):
+        try:
+            load_dotenv()
+            api_key = os.getenv("BINANCE_API_KEY")
+            api_secret = os.getenv("BINANCE_SECRET_KEY")
+            self.binance_client = ccxt.binance({
+                'enableRateLimit': True,
+                'apiKey': api_key,
+                'secret': api_secret,
+                'options': {
+                    'defaultType': 'future'
+                }
+            })
+            self.stablecoins_to_exclude = [
+                'USDT', 'USDC', 'BUSD', 'DAI', 'FDUSD', 'TUSD', 'EUR', 'GBP',
+                'PAX', 'GUSD', 'USD' # Adicione outras que possam aparecer como base
+            ]
+        except Exception as e:
+            print('!!! ERRO AO INICIAR CLIENTE DA BINANCE !!!')
+            print(f"!!! TIPO DO ERRO: {type(e).__name__}")
+            print(f"!!! MENSAGEM DO ERRO: {e}")
 
+    def criar_grafico_rsi_horizontal(self, data_dict, titulo, nome_arquivo, cmap_nome='Greens', reverse_cmap=False, cmap_start_val=0.3, cmap_end_val=1.0):
+        """
+        Cria e salva um gráfico de barras horizontal para os dados de RSI com gradiente de cor.
+
+        Args:
+            data_dict (dict): Dicionário com os símbolos e seus valores de RSI.
+            titulo (str): Título do gráfico.
+            nome_arquivo (str): Nome do arquivo para salvar a imagem do gráfico (ex: 'maiores_rsi.png').
+            cmap_nome (str): Nome do colormap a ser usado (ex: 'Greens', 'Reds', 'Blues').
+            reverse_cmap (bool): Se True, inverte o colormap (útil para cores mais escuras em valores menores, ou vice-versa).
+        """
+        try:
+            
+            
+            if "Maiores" in titulo:
+                sorted_items = sorted(data_dict.items(), key=lambda item: item[1]) # Crescente para que o maior RSI fique no topo visualmente
+            else: # Menores RSI
+                sorted_items = sorted(data_dict.items(), key=lambda item: item[1], reverse=True) # Decrescente para que o menor RSI fique no topo visualmente
+
+            symbols = [item[0] for item in sorted_items]
+            rsis = [item[1] for item in sorted_items]
+
+            min_rsi = min(rsis)
+            max_rsi = max(rsis)
+            
+            if max_rsi == min_rsi:
+                normalized_rsis = [0.5] * len(rsis) # Cor média
+            else:
+                normalized_rsis = [(rsi - min_rsi) / (max_rsi - min_rsi) for rsi in rsis]
+
+            adjusted_normalized_rsis = [
+            cmap_start_val + (val * (cmap_end_val - cmap_start_val)) for val in normalized_rsis
+            
+            ]
+            
+            cmap = cm.get_cmap(cmap_nome)
+            
+            if reverse_cmap:
+                colors = [cmap(1 - val) for val in adjusted_normalized_rsis] # Inverte a ordem do colormap
+            else:
+                colors = [cmap(val) for val in adjusted_normalized_rsis]
+
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.barh(symbols, rsis, color=colors)
+
+            # Configurações do gráfico
+            ax.set_xlabel("Valor do RSI")
+            ax.set_title(titulo)
+            ax.set_xlim(0, 100) # O RSI varia de 0 a 100
+
+            # Adiciona os valores do RSI ao lado de cada barra
+            for index, value in enumerate(rsis):
+                # Ajusta a cor do texto para ser legível (pode ser necessário dependendo da cor de fundo)
+                text_color = 'black' # Você pode ajustar para 'white' se as barras forem muito escuras
+                ax.text(value + 1, index, f'{value:.2f}', va='center', ha='left', color=text_color)
+
+            plt.tight_layout()
+            plt.savefig(nome_arquivo, bbox_inches='tight', dpi=300)
+            plt.close(fig)
+        except Exception as e:
+            print("ERRO AO INCIAR A FUNÇÃO DE CALCULAR O RSI")
+            print(f"!!! TIPO DO ERRO: {type(e).__name__}")
+            print(f"!!! MENSAGEM DO ERRO: {e}")
+
+    def calcular_rsi(self):
+        """
+        Calcula o RSI para as moedas listadas em um DataFrame, excluindo stablecoins.
+
+        Args:
+            top_100_coins_df (pd.DataFrame): DataFrame com as colunas 'symbol' e 'market_cap'.
+        Returns:
+            dict: Um dicionário onde as chaves são os símbolos das moedas e os valores são seus RSIs.
+        """
+        try:
+            heatmap_intance = HeatMap()
+            top_100 = heatmap_intance.get_top_100_coins()
+            # print(top_100)
+            binance = self.binance_client
+            # markets = binance.load_markets()
+            list_rsi_data = []
+            list_rsi = dict()
+
+            for index, row in top_100.iterrows():
+                coin_symbol = row['symbol'] # Ex: 'BTC', 'ETH', 'USDT'
+                
+
+                # Lógica para excluir stablecoins
+                # Verifica se o símbolo da moeda está na sua lista de stablecoins para exclusão
+                if coin_symbol in self.stablecoins_to_exclude:
+                    print(f"Pulando {coin_symbol} (stablecoin).")
+                    continue # Pula para a próxima iteração do loop
+
+                # Para moedas que não são stablecoins, formamos o par com USDT para buscar dados
+                symbol_pair = f"{coin_symbol}/USDT"
+                # symbol = row['symbol'] + '/USDT'
+                if symbol_pair.endswith('USDT') and not symbol_pair.endswith('1000USDT'):
+                    try:
+                        bars = binance.fetch_ohlcv(symbol=symbol_pair, timeframe='4h', limit=50)
+                        df_candles = pd.DataFrame(bars, columns=['time', 'abertura','max','min','fechamento','volume'])
+                        df_candles['time'] = pd.to_datetime(df_candles['time'], unit='ms', utc=True).map(lambda x: x.tz_convert('America/Sao_Paulo'))
+                        
+                        rsi = RSIIndicator(df_candles['fechamento'])
+                        df_candles['RSI']= rsi.rsi()
+                        
+                        if df_candles['RSI'].notnull().iloc[-1]:
+                            rsi = df_candles['RSI'].iloc[-1]
+                            price = binance.fetch_trades(symbol_pair)[-1]['price']
+                            # print(f'{symbol_pair} -> price: {price} rsi: {rsi}')
+                            price = float(binance.price_to_precision(symbol_pair, price))
+                            list_rsi[symbol_pair] = rsi
+
+                        if df_candles['RSI'].notnull().iloc[-1]:
+                            rsi_value = df_candles['RSI'].iloc[-1]
+                            
+                            # Filtra RSI que não são 0 ou 100
+                            if rsi_value != 0 and rsi_value != 100.0:
+                                print(f'{symbol_pair} -> rsi: {rsi_value}')
+                                list_rsi_data.append({
+                                    'symbol': coin_symbol,
+                                    'rsi': rsi_value
+                                })
+                        time.sleep(1)
+                    except:
+                        pass
+            
+            filtered_list_rsi = {k: v for k, v in list_rsi.items() if v != 0 and v != 100.0}
+
+            top_10_menores = dict(sorted(filtered_list_rsi.items(), key=lambda item: item[1])[:10])
+
+            top_10_maiores = dict(sorted(filtered_list_rsi.items(), key=lambda item: item[1], reverse=True)[:10])
+
+            top_10_limpo = dict()
+            simbolos_vistos = set()
+
+            for simbolo, rsi in top_10_menores.items():
+                simbolo_limpo = simbolo.replace(':USDT', '')  # <- limpeza embutida
+                if simbolo_limpo not in simbolos_vistos:
+                    simbolos_vistos.add(simbolo_limpo)
+                    top_10_limpo[simbolo] = rsi
+
+            # Gráfico para os Maiores RSI
+            self.criar_grafico_rsi_horizontal(
+                top_10_maiores,
+                "Top 10 Maiores RSI (Ativos Próximos de Sobrecompra)",
+                "outputs/images/maiores_rsi_chart_gradiente.png",
+                cmap_nome='Blues',
+                reverse_cmap=False,
+                cmap_start_val=0.3, 
+                cmap_end_val=1.0
+            )
+
+            # Gráfico para os Menores RSI
+            self.criar_grafico_rsi_horizontal(
+                top_10_menores,
+                "Top 10 Menores RSI (Ativos Próximos de Sobrevenda)",
+                "outputs/images/menores_rsi_chart_gradiente.png",
+                cmap_nome='Reds',
+                reverse_cmap=True,
+                cmap_start_val=0.1,
+                cmap_end_val=1.0
+            )
+
+            mensagem = "📊 *Análise de RSI (Índice de Força Relativa)*"
+            mensagem += "\n\n📈 *Top 10 Maiores RSI*\n"
+            mensagem += "\n"
+            for symbol, rsi in top_10_maiores.items():
+                mensagem += f"🔹 {symbol}: RSI {rsi:.2f}\n"
+
+            mensagem += "\n\n📉 *Top 10 Menores RSI*\n"
+            mensagem += "\n"
+            for symbol, rsi in top_10_menores.items():
+                mensagem += f"🔻 {symbol}: RSI {rsi:.2f}\n"
+            esc = EscaparMarkdown(mensagem)
+            mensagem_escapada = esc.escapar_markdown_v2()
+
+            return mensagem_escapada
+        except Exception as e:
+            print("ERRO AO INCIAR A FUNÇÃO DE CALCULAR O RSI")
+            print(f"!!! TIPO DO ERRO: {type(e).__name__}")
+            print(f"!!! MENSAGEM DO ERRO: {e}")
+        
 async def main():
     """Função principal que orquestra todo o processo."""
     print("Executando o processo de notícias e notificação...\n")
     
     try:
-        # Inicializa o notificador do Telegram
+        # # Inicializa o notificador do Telegram
         notifier = TelegramNotifier()
 
         # PROCESSO 1 - Verifica eventos importantes
@@ -1481,13 +1692,10 @@ async def main():
         for t in tipo:
             url = f"https://coinranking.com/coins/{t}"
             
-            # 2. Crie uma instância da sua classe
             gainers_losers = ScraperCoinranking(url=url)
             
-            # 3. Chame APENAS o método orquestrador
             relatorio_final = gainers_losers.gerar_relatorio_telegram()
 
-            # 4. Use o resultado
             print(f"\n--- MENSAGEM FINAL PRONTA PARA ENVIAR TIPO {t.upper()} ---")
             print(relatorio_final)
             await notifier.enviar_mensagem(relatorio_final)
@@ -1497,9 +1705,14 @@ async def main():
         mensagem = feargreed.obter_mensagem_formatada()
         await notifier.enviar_mensagem(mensagem)
 
-        # PROCESSO 5 - Verifica e envia notícias
+        # PROCESSO 5 - Envia os maiores e menores RSI do dia
+        rsi = RsiRanking()
+        mensagem_rsi = rsi.calcular_rsi()
+        await notifier.enviar_mensagem(mensagem_rsi)
+
+        # PROCESSO 6 - Verifica e envia notícias no site
         # Configurações do seu scraper do site Cointelegraph
-        maximo_noticias = 1
+        maximo_noticias = 30
         limite_horas_recentes = 24
 
         # Cria uma instância do processador de notícias do site Cointelegraph
@@ -1514,16 +1727,17 @@ async def main():
         )
         if resultados:
             for r in resultados:
-                # Envia a mensagem formatada para o Telegram
                 await notifier.enviar_mensagem(r)
+                time.sleep(60)
         else:
             logger.info("Nenhuma notícia encontrada para enviar.")
 
-        # PROCESSO 6 - Cria uma instância do processador de notícias do site Beincrypto
+        # PROCESSO 7 - Cria uma instância do processador de notícias do site Beincrypto
         scraper = ScraperBeincrypto()
         dados_de_hoje = scraper.run(somente_hoje=True, limit=1)
         for n in dados_de_hoje:
             await notifier.enviar_mensagem(n['resumo'])
+            time.sleep(60)
 
         print("\nProcesso finalizado com sucesso!")
 

@@ -395,7 +395,7 @@ while True:
                 btc_s_ou_n = str(input("Deseja analisar o BTC antes do trade? (S/N): "))
                 if btc_s_ou_n.upper() == 'N':
                     print("Iniciando backtest de trade automático sem analise do BTC. Pressione Ctrl+C para parar.")
-                    top_cryptos = escolher_top_cryptos(max_price=0.5, csv= salvar_csv)
+                    top_cryptos = escolher_top_cryptos(max_price=0.2, csv= salvar_csv)
                     top_cryptos = top_cryptos.dropna()
                     condicao = top_cryptos['media'] >= 70
                     df_filtrado = top_cryptos[condicao]

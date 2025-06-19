@@ -1362,6 +1362,7 @@ def escolher_top_cryptos(max_price: float = 0.1, intervalo: str = "1d", limite: 
         else:
             continue
     # Criar DataFrame com uma única linha
+    
     df_resultados = pd.DataFrame(resultados_finais_notas)
 
     df_resultados = df_resultados.sort_values(by='media', ascending=False)
