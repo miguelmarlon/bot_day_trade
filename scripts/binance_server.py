@@ -1,3 +1,6 @@
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
 import json
 import pandas as pd
 from binance.client import Client
@@ -12,55 +15,74 @@ from pydantic import Field
 import re
 import unicodedata
 import pandas as pd
+from utils.binance_client import conectar_binance
+import ccxt
+import asyncio
 import warnings
 warnings.filterwarnings("ignore")
 
-class BinanceGetBalance(BaseTool):
-    name: str = "BinanceGetBalance"
-    description: str = "Lista o saldo de determinada cripto."
-    api_key: str = Field(default=None)  
-    secret_key: str = Field(default=None)  
-    client: Any = Field(default=None)  
-
-    def __init__(self, cripto_name: Optional[str] = None, **kwargs):
-        super().__init__(**kwargs)
-        
-        self.api_key = os.getenv("BINANCE_API_KEY")
-        self.secret_key = os.getenv("BINANCE_SECRET_KEY")
-        if not self.api_key or not self.secret_key:
-            raise ValueError("As chaves da API da Binance não foram fornecidas.")
-        self.client = Client(self.api_key, self.secret_key)
-
-        if cripto_name:
-            content = self.get_balance(cripto_name)
-            if content["success"]:
-                self.add(content)
-                self.description = f"Saldo disponível para {cripto_name}"
-            else:
-                print(f"Erro ao buscar saldo para {cripto_name}: {content['error']}")   
+class CCXTGetBalance(BaseTool):
+    name: str = "ExchangeGetBalance"
+    description: str = "Lista o saldo de uma criptomoeda específica na sua conta da corretora."
     
-    def get_balance(self, asset: str) -> dict:
+    # O cliente é um atributo, mas não será inicializado aqui
+    cliente: Any = Field(None)
+
+    # --- CORREÇÃO 1: __init__ VOLTA A SER SÍNCRONO ---
+    # Ele agora é muito simples e apenas recebe o cliente já pronto.
+    def __init__(self, client: Any, **kwargs):
+        super().__init__(**kwargs)
+        self.cliente = client
+
+    # --- CORREÇÃO 2: CRIAMOS UM MÉTODO DE CLASSE "FÁBRICA" ---
+    @classmethod
+    async def create(cls, **kwargs):
+        """
+        Método de fábrica assíncrono para criar e inicializar a ferramenta.
+        """
+        # 1. Faz a conexão assíncrona
+        client = await conectar_binance()
+        # 2. Cria a instância da classe, passando o cliente já conectado
+        return cls(client=client, **kwargs)
+
+    # O resto do seu código já estava quase perfeito!
+    async def get_balance(self, asset: str) -> dict:
         """Obtém o saldo de uma criptomoeda específica."""
         try:
-            balance = self.client.get_asset_balance(asset=asset)
-            return json.dumps({"success": True, "balance": balance})
-        except BinanceAPIException as e:
-            return json.dumps({"success": False, "error": str(e)})
+            balance_data = await self.cliente.fetch_balance()
+            asset_upper = asset.upper()
+            if asset_upper in balance_data:
+                return {"success": True, "balance": balance_data[asset_upper]}
+            else:
+                return {"success": True, "balance": {'asset': asset_upper, 'free': 0.0, 'used': 0.0, 'total': 0.0}}
+        except Exception as e: # Use ccxt_pro.ExchangeError se possível
+            return {"success": False, "error": str(e)}
 
     def add(self, *args: Any, **kwargs: Any) -> None:
         kwargs["data_type"] = DataType.TEXT
         super().add(*args, **kwargs)
 
-    def _run(self, cripto_name: str) -> str:
+    async def _run(self, cripto_name: str) -> str:
         """Executa a busca pelo saldo de uma criptomoeda."""
-        content = self.get_balance(cripto_name)
-        if isinstance(content, str): 
-            content = json.loads(content)
-        
-        if content["success"]:
-            return f"Saldo disponível para {cripto_name}: {content['balance']}"
-        else:
-            return f"Erro ao buscar saldo para {cripto_name}: {content['error']}"
+        try:
+            content = await self.get_balance(cripto_name)
+            
+            # Pequeno detalhe: esta linha é um resquício e pode ser removida
+            # if isinstance(content, str): 
+            #     content = json.loads(content)
+            
+            if content["success"]:
+                balance = content['balance']
+                return (f"Saldo para {cripto_name.upper()}: \n"
+                        f"  - Total: {balance['total']}\n"
+                        f"  - Disponível (free): {balance['free']}\n"
+                        f"  - Em uso (em ordens): {balance['used']}")
+            else:
+                return f"Erro ao buscar saldo para {cripto_name}: {content['error']}"
+        except Exception as e:
+            return f"Erro ao buscar saldo para {cripto_name}: {str(e)}"
+        # finally:
+        #     await self.cliente.close()
 
 class BinanceGetPrice(BaseTool):
     name: str = "BinanceGetPrice"
@@ -518,7 +540,16 @@ def parse_llm_response(texto):
         return match_alternativa[-1].upper()
 
     return "N/A"
+
+# async def main():
+#     tool = await CCXTGetBalance.create()
     
+#     result = await tool._run("BTC") 
+#     print(result) 
+    
+# if __name__ == '__main__':
+#     asyncio.run(main())
+
 ############################################################################################
 ## tentando conectar o mcp com praisonai
 # agent_yaml = """

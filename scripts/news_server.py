@@ -5,7 +5,6 @@ import csv
 from datetime import datetime, timezone
 from urllib.parse import urlparse, urljoin
 from datetime import datetime, timezone, timedelta
-
 import requests
 from bs4 import BeautifulSoup
 import ollama
