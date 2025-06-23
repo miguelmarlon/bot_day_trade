@@ -78,7 +78,7 @@ class BinanceHandler:
         return df_candles
 
     async def abrir_short(self, symbol, posicao_max, context):
-        async with GerenciamentoRiscoAsync() as gr:
+        async with GerenciamentoRiscoAsync as gr:
             try:
                 bid, ask = await gr.livro_ofertas(symbol)
                 ask =  self.client.price_to_precision(symbol, ask)
@@ -108,7 +108,7 @@ class BinanceHandler:
             await context.bot.send_message(chat_id=context.job.chat_id, text=msg, parse_mode="Markdown")
 
     async def abrir_long(self, symbol, posicao_max, context):
-        async with GerenciamentoRiscoAsync() as gr:
+        async with GerenciamentoRiscoAsync as gr:
             try:
                 bid, ask = await gr.livro_ofertas(symbol)
                 bid = self.client.price_to_precision(symbol, bid)
@@ -142,7 +142,7 @@ class BinanceHandler:
 
     async def cancelar_todas_as_ordens(self, symbol, context):
         """Cancela todas as ordens abertas para um símbolo."""
-        async with GerenciamentoRiscoAsync() as gr:
+        async with GerenciamentoRiscoAsync as gr:
             if await gr.ultima_ordem_aberta(symbol):
                 try:
                     response = await self.client.cancel_all_orders(symbol)
@@ -217,7 +217,6 @@ class BinanceHandler:
             print(f"Erro ao listar ativos por preço: {e}")
             return [{"error": str(e)}]
     
-
 async def main():
     """
     Função principal assíncrona para demonstrar o uso do BinanceHandler.

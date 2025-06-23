@@ -2,18 +2,17 @@ import logging
 import os
 from dotenv import load_dotenv
 import pandas as pd
-from sentiment_analyzer import analisar_sentimento_openai, gerar_resumo
+from sentiment_analyzer import analisar_sentimento_openrouter, gerar_resumo
 from information_tools import get_economic_events_async, buscar_noticias_google
 from technical_analysis import calcular_indicadores, verificar_long_btc_1m, verificar_short_btc_1m, verificar_long, verificar_short
 import numpy as np
-from xgboost import XGBRegressor
-from sklearn.preprocessing import StandardScaler
 from gerenciamento_risco_assin import GerenciamentoRiscoAsync
 from strategies.clustering import SuperTrendAIClusteringAsync
 from strategies.estrategia_macd_clustering import trading_task_macd_clustering
 from strategies.estrategia_rompimento import trading_task_rompimento
 from utils.binance_client import conectar_binance, obter_dados_candles, cancelar_todas_as_ordens, abrir_long, abrir_short
 from config.config import TELEGRAM_TOKEN
+from prediction_model import treina_modelo, predict
 
 # load_dotenv()
 # api_key = os.getenv("BINANCE_API_KEY")
@@ -55,24 +54,24 @@ from config.config import TELEGRAM_TOKEN
 #     df_candles.dropna(inplace=True)
 #     return df_candles
 
-def treina_modelo(df_candles):
-    df_candles['indice'] = np.arange(len(df_candles))
-    features = ['indice', 'RSI', 'MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9', 'EMA_50', 'EMA_200', 'ATR', 'CCI', 'WILLIAMS_R', 'Momentum']
-    x = df_candles[features].values[:-1]
-    y = df_candles['fechamento'].values[1:]
+# def treina_modelo(df_candles):
+#     df_candles['indice'] = np.arange(len(df_candles))
+#     features = ['indice', 'RSI', 'MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9', 'EMA_50', 'EMA_200', 'ATR', 'CCI', 'WILLIAMS_R', 'Momentum']
+#     x = df_candles[features].values[:-1]
+#     y = df_candles['fechamento'].values[1:]
 
-    scaler = StandardScaler()
-    x_norm = scaler.fit_transform(x)
-    model = XGBRegressor(n_estimators=100, learning_rate=0.1, max_depth=5, random_state=42)
-    model.fit(x_norm, y)
-    return model, scaler
+#     scaler = StandardScaler()
+#     x_norm = scaler.fit_transform(x)
+#     model = XGBRegressor(n_estimators=100, learning_rate=0.1, max_depth=5, random_state=42)
+#     model.fit(x_norm, y)
+#     return model, scaler
 
-def predict(df_candles, model, scaler):
-    features = ['indice', 'RSI', 'MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9', 'EMA_50', 'EMA_200', 'ATR', 'CCI', 'WILLIAMS_R', 'Momentum']
-    ultimo_candle = df_candles[features].iloc[-1].values.reshape(1, -1)
-    ultimo_candle_norm = scaler.transform(ultimo_candle)
-    preco_futuro = model.predict(ultimo_candle_norm)[0]
-    return preco_futuro
+# def predict(df_candles, model, scaler):
+#     features = ['indice', 'RSI', 'MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9', 'EMA_50', 'EMA_200', 'ATR', 'CCI', 'WILLIAMS_R', 'Momentum']
+#     ultimo_candle = df_candles[features].iloc[-1].values.reshape(1, -1)
+#     ultimo_candle_norm = scaler.transform(ultimo_candle)
+#     preco_futuro = model.predict(ultimo_candle_norm)[0]
+#     return preco_futuro
 
 # def verificar_long_btc_1m(df_candles):
 #     rsi = df_candles['RSI'].iloc[-1]
@@ -622,7 +621,7 @@ async def noticias_handler(update: Update, context: CallbackContext):
 
         titulos = df_noticias['titulo'].dropna().unique().tolist()
         await update.message.reply_text(f"📰 {len(titulos)} notícias encontradas. Classificando sentimentos...")
-        sentimentos = await analisar_sentimento_openai(titulos, idioma=idioma)
+        sentimentos = await analisar_sentimento_openrouter(titulos, idioma=idioma)
 
         df_sentimentos = pd.DataFrame(sentimentos)
         df_final = df_noticias.reset_index(drop=True).join(df_sentimentos)

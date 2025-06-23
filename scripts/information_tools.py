@@ -44,6 +44,7 @@ async def get_economic_events_async():
 
     return None
 
+# mudar essa função para buscar notícias das funções do arquivo news_server
 async def buscar_noticias_google(termos, idioma='en', dias=1, max_paginas=2):
     lang = idioma.lower()
     region = 'BR' if lang == 'pt' else 'EN'

@@ -1,26 +1,21 @@
 import os
 from dotenv import load_dotenv
-import ccxt 
+import ccxt.pro
 import decimal
 import asyncio
 import aiohttp
 from typing import Tuple, Dict, Any
 from telegram.ext import CallbackContext
+from utils.binance_client import BinanceHandler
 
 class GerenciamentoRiscoAsync:
     def __init__(self):
-        load_dotenv()
-        api_key = os.getenv("BINANCE_API_KEY")
-        api_secret = os.getenv("BINANCE_SECRET_KEY")
-        self.binance = ccxt.binance({
-            'enableRateLimit': True,
-            'apiKey': api_key,
-            'secret': api_secret,
-            'options': {'defaultType': 'future'},
-        })
-        self.session = aiohttp.ClientSession()
-        self._closed = False  # Flag para controlar o estado
-
+        """
+        Inicializa o gerenciamento de risco com um handler da Binance já conectado.
+        Este __init__ não deve ser chamado diretamente. Use o método create().
+        """
+        self.binance = None
+      
     async def close(self):
         """Fecha todos os recursos de forma segura."""
         if self._closed:
@@ -36,7 +31,9 @@ class GerenciamentoRiscoAsync:
 
     async def __aenter__(self):
         """Suporte para uso com 'async with'."""
-        return self
+        self.binance = await BinanceHandler.create()
+        if self.binance is None:
+            raise ConnectionError("Falha ao estabelecer conexão com a Binance.")
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Garante o fechamento automático."""
@@ -45,7 +42,7 @@ class GerenciamentoRiscoAsync:
     async def posicoes_abertas(self, symbol: str) -> Tuple:
         """Versão mais robusta que sempre retorna uma tupla"""
         try:
-            positions = await asyncio.to_thread(self.binance.fetch_positions, symbols=[symbol])
+            positions = await self.binance.fetch_positions (symbols=[symbol])
             if not positions or len(positions) == 0:
                 return (None, None, None, False, None, None, None)
 
@@ -72,7 +69,7 @@ class GerenciamentoRiscoAsync:
             raise RuntimeError("Sessão já fechada")
 
         try:
-            order_book = await asyncio.to_thread(self.binance.fetch_order_book, symbol)
+            order_book = await self.binance.fetch_order_book (symbol)
             return decimal.Decimal(order_book['bids'][0][0]), decimal.Decimal(order_book['asks'][0][0])
         except Exception as e:
             await self.close()  # Fecha recursos em caso de falha
@@ -88,21 +85,19 @@ class GerenciamentoRiscoAsync:
                         await self.enviar_mensagem(context, 'Posição fechada')
                     break
 
-                await asyncio.to_thread(self.binance.cancel_all_orders, symbol)
+                await self.binance.cancel_all_orders (symbol)
                 bid, ask = await self.livro_ofertas(symbol)
 
                 if side == 'long':
                     price = self.binance.price_to_precision(symbol, ask)
-                    await asyncio.to_thread(
-                        self.binance.create_order,
+                    await self.binance.create_order(
                         symbol, side='sell', type= 'LIMIT', amount=amount, price=price,
                         params={'hedged': 'true'}
                     )
                     msg = f'Fechando long: {amount} de {symbol}'
                 elif side == 'short':
                     price = self.binance.price_to_precision(symbol, bid)
-                    await asyncio.to_thread(
-                        self.binance.create_order,
+                    await self.binance.create_order(
                         symbol, side='buy', type= 'LIMIT',amount= amount, price=price,
                         params={'hedged': 'true'}
                     )
@@ -167,7 +162,7 @@ class GerenciamentoRiscoAsync:
     async def ultima_ordem_aberta(self, symbol: str) -> bool:
         """Verifica se há ordens abertas de forma assíncrona"""
         try:
-            orders = await asyncio.to_thread(self.binance.fetch_orders, symbol)
+            orders = await self.binance.fetch_orders (symbol)
             return orders[-1]['status'] == 'open' if orders else False
         except Exception:
             return False
@@ -175,7 +170,7 @@ class GerenciamentoRiscoAsync:
     async def stop_dinamico(self, symbol: str, take_profit: float, stop_loss: float, context: CallbackContext = None) -> None:
         """Ajusta stops dinâmicos de forma assíncrona"""
         try:
-            position = (await asyncio.to_thread(self.binance.fetch_positions, symbols=[symbol]))[0]
+            position = await self.binance.fetch_positions (symbols=[symbol])[0]
             if not position:
                 return
 
@@ -187,7 +182,7 @@ class GerenciamentoRiscoAsync:
             if not amount or float(amount) == 0:
                 return
 
-            orders = await asyncio.to_thread(self.binance.fetch_orders, symbol)
+            orders = await self.binance.fetch_orders (symbol)
             if not orders:
                 return
 
@@ -199,20 +194,18 @@ class GerenciamentoRiscoAsync:
                 print(f'{symbol}: {price_var:.2f}% em relação a entrada do {side}')
 
                 if ((take_profit_price - mark_price) / mark_price) <= (0.2 * take_profit):
-                    await asyncio.to_thread(self.binance.cancel_all_orders, symbol)
-                    last_trade = (await asyncio.to_thread(self.binance.fetch_trades, symbol))[-1]
+                    await self.binance.cancel_all_orders (symbol)
+                    last_trade = self.binance.fetch_trades (symbol)[-1]
                     current_price = float(self.binance.price_to_precision(symbol, last_trade['price']))
 
                     stop_loss_price = current_price * (1 - stop_loss)
                     take_profit_price = current_price * (1 + take_profit)
 
-                    await asyncio.to_thread(
-                        self.binance.create_order,
+                    await self.binance.create_order(
                         symbol=symbol, side='sell', type='STOP_MARKET',
                         amount=amount, params={'stopPrice': stop_loss_price}
                     )
-                    await asyncio.to_thread(
-                        self.binance.create_order,
+                    await self.binance.create_order(
                         symbol=symbol, side='sell', type='TAKE_PROFIT_MARKET',
                         amount=amount, params={'stopPrice': take_profit_price}
                     )
@@ -225,20 +218,18 @@ class GerenciamentoRiscoAsync:
                 print(f'{symbol}: {price_var:.2f}% em relação a entrada do {side}')
 
                 if ((mark_price - take_profit_price) / take_profit_price) <= (0.2 * take_profit):
-                    await asyncio.to_thread(self.binance.cancel_all_orders, symbol)
-                    last_trade = (await asyncio.to_thread(self.binance.fetch_trades, symbol))[-1]
+                    await self.binance.cancel_all_orders (symbol)
+                    last_trade = await self.binance.fetch_trades (symbol)[-1]
                     current_price = float(self.binance.price_to_precision(symbol, last_trade['price']))
 
                     stop_loss_price = current_price * (1 + stop_loss)
                     take_profit_price = current_price * (1 - take_profit)
 
-                    await asyncio.to_thread(
-                        self.binance.create_order,
+                    await self.binance.create_order(
                         symbol=symbol, side='buy', type='STOP_MARKET',
                         amount=amount, params={'stopPrice': stop_loss_price}
                     )
-                    await asyncio.to_thread(
-                        self.binance.create_order,
+                    await self.binance.create_order(
                         symbol=symbol, side='buy', type='TAKE_PROFIT_MARKET',
                         amount=amount, params={'stopPrice': take_profit_price}
                     )

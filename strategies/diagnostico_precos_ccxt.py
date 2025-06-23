@@ -1,18 +1,16 @@
-import ccxt
+import ccxt.pro
 import pandas as pd
 import numpy as np
 from scipy.stats import norm
 import asyncio
+from scripts.binance_server import BinanceHandler
 
 async def rodar_diagnostico_tail1(symbol='BTC/USDT', timeframe='1h', window_size=100, holding_periods=[8], acf_threshold=0.03):
     # Inicializa Binance
-    binance = ccxt.binance({
-        'enableRateLimit': True,
-        'options': {'defaultType': 'future'}
-    })
+    binance = await BinanceHandler.create()
 
     # Função assíncrona para puxar os candles
-    candles = await asyncio.to_thread(binance.fetch_ohlcv, symbol, timeframe, None, 1500)
+    candles = await binance.fetch_ohlcv (symbol, timeframe, None, 1500)
 
     # Transforma em DataFrame
     df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
