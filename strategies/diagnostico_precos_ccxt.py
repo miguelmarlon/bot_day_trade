@@ -10,7 +10,7 @@ async def rodar_diagnostico_tail1(symbol='BTC/USDT', timeframe='1h', window_size
     binance = await BinanceHandler.create()
 
     # Função assíncrona para puxar os candles
-    candles = await binance.fetch_ohlcv (symbol, timeframe, None, 1500)
+    candles = await binance.client.fetch_ohlcv (symbol, timeframe, None, 1500)
 
     # Transforma em DataFrame
     df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])

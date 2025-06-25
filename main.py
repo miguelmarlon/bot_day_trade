@@ -30,7 +30,7 @@ async def start(update: Update, context: CallbackContext):
 
     print("Bot iniciado com sucesso!")
     await update.message.reply_text(
-        "👋 Olá! Eu sou o seu *Trading System*!\n\n"
+        "👋 Olá! Eu sou o *Falcon AI Bot*!\n\n"
         "Comandos disponíveis:\n"
         "▫️ /operarXGB [timeframe] – Inicia o bot com candles de 1h, 2h, etc\n"
         "▫️ /pararXGB – Interrompe o bot\n"
@@ -38,7 +38,7 @@ async def start(update: Update, context: CallbackContext):
         "▫️ /parar1mBTC – Interrompe o bot\n"
         "▫️ /operarROMPIMENTO – Inicia o bot correlação ETH\n"
         "▫️ /pararROMPIMENTO – Interrompe o bot correlação ETH\n"
-        "▫️ /operarMACD – Inicia o bot da estratégia de MACD + Clustering ETH\n"
+        "▫️ /operarMACD – Inicia o bot da estratégia de MACD + Clustering\n"
         "▫️ /pararMACD – Interrompe o bot da estratégia de MACD + Clustering\n"              
         "▫️ /regime [timeframe] – Diagnóstico do regime de mercado\n"
         "▫️ /estrategias – Exibe a lógica das estratégias disponíveis\n"
@@ -379,7 +379,7 @@ async def supertrend_handler(update: Update, context: CallbackContext):
             f"🔹 *Timeframe:* `{timeframe}`\n"
             f"🔹 *Tendência:* {trend_text}\n"
             f"🔹 *Stop:* `{float(stop):.4f}`\n"
-            f"🔹 *AMA:* `{float(ama):.4f}`"
+            f"🔹 *Média Móvel Adaptativa:* `{float(ama):.4f}`"
         )
         await update.message.reply_text(msg, parse_mode="Markdown")
 

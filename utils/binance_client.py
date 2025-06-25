@@ -33,7 +33,8 @@ class BinanceHandler:
         if not client:
             raise ValueError("O cliente CCXT não pode ser nulo.")
         self.client = client
-    
+        self.markets = None
+
     @classmethod
     async def create(cls):
         """
@@ -191,7 +192,7 @@ class BinanceHandler:
             msg = f"❌ Erro da Corretora: {e}"
             print(msg)
         except Exception as e:
-            msg = f"❌ Erro ao abrir long: {e}"
+            msg = f"❌ Erro na função get_balance: {e}"
             print(msg)
 
     async def get_price(self, symbol: str) -> dict:
@@ -222,7 +223,6 @@ class BinanceHandler:
             msg = f"❌ Erro ao abrir long em {symbol}: {e}"
             print(msg)
         
-
     async def list_assets_by_price(self, quote_currency: str = 'USDT', top_n: int = 10) -> list:
         """
         Lista os 'top N' ativos por preço em relação a uma moeda base (ex: USDT).
@@ -260,15 +260,94 @@ class BinanceHandler:
             print(f"Erro ao buscar preço para:: {e}")
             return {"error": str(e)}
         except Exception as e:
-            msg = f"❌ Erro ao abrir long: {e}"
+            msg = f"❌ Erro na função list_assets_by_price: {e}"
             print(msg)
-    
-# async def main():
-#     """
-#     Função principal assíncrona para demonstrar o uso do BinanceHandler.
-#     """
-#     handler = None
-#     try:
+
+    async def get_volume_report(self, quote_currency='USDT', limit=100):
+        """
+        Busca e retorna as moedas com o maior volume de negociação para uma
+        determinada moeda de cotação nas últimas 24 horas.
+
+        :param quote_currency: A moeda de cotação para filtrar (ex: 'USDT', 'BUSD').
+        :param limit: O número de moedas do topo do ranking a serem retornadas.
+        :return: Um DataFrame do Pandas com os resultados ordenados, ou None se ocorrer um erro.
+        """
+        try:
+            # Usa a conexão existente do cliente da classe
+            all_tickers = await self.client.fetch_tickers()
+            
+            # print(all_tickers)
+            volume_data = []
+            for symbol, ticker in all_tickers.items():
+                # Filtra pela moeda de cotação desejada
+                if symbol.endswith(f':{quote_currency}') and ticker.get('quoteVolume') is not None:
+                    volume_data.append({
+                        'symbol': symbol.split(':')[0],
+                        'quote_volume': ticker['quoteVolume'],
+                        'price_change_percent': ticker.get('percentage')
+                    })
+            
+            # Ordena a lista pelo volume em ordem decrescente
+            volume_data.sort(key=lambda x: x['quote_volume'], reverse=True)
+            
+            df = pd.DataFrame(volume_data)
+            # print(df)
+            if self.markets is None:
+                print("Carregando dados de todos os mercados (chamada única de API)...")
+                self.markets = await self.client.load_markets()
+
+            df['status'] = df['symbol'].apply(lambda x: self.markets[x]['active'] if x in self.markets else 'Unknown')
+
+            df = df[df['status'] == True]
+            df['quote_volume'] = df['quote_volume'].apply(lambda x: f"${x:,.2f}")
+            df['price_change_percent'] = df['price_change_percent'].apply(lambda x: f"{x:.2f}%" if x is not None else "N/A")
+            df.index = df.index + 1
+
+            return df.head(limit)
+
+        except AuthenticationError as e:
+            msg = f"❌ ERRO DE AUTENTICAÇÃO: Verifique suas chaves de API e permissões. Detalhes: {e}"
+            print(msg)
+        except NetworkError as e:
+            msg = f"⚠️ ERRO DE REDE: Não foi possível conectar à Binance. Tentando de novo no próximo ciclo. Detalhes: {e}"
+            print(msg)
+        except RequestTimeout as e:
+            msg = f"⏳ ERRO DE TIMEOUT: A resposta da Binance demorou muito. Tentando novamente no próximo ciclo. Detalhes: {e}#"
+            print(msg)
+        except ExchangeError as e:
+            print(f"Erro ao buscar preço para:: {e}")
+            return {"error": str(e)}
+        except Exception as e:
+            msg = f"❌ Erro na função get_volume_report: {e}"
+            print(msg)
+        finally:
+            await self.close_connection()
+
+async def main():
+    """
+    Função principal assíncrona para demonstrar o uso do BinanceHandler.
+    """
+    handler = None
+    try:
+        handler = await BinanceHandler.create()
+        
+        print("\nBuscando as 10 moedas com maior volume em USDT...")
+        
+        # 2. Chama o novo método da classe
+        top_10_usdt = await handler.get_volume_report(quote_currency='USDT', limit=50)
+        print(top_10_usdt)
+        # 3. Processa o resultado retornado pelo método
+        
+        print("\n" + "="*50 + "\n")
+
+    except Exception as e:
+        print(f"Ocorreu um erro no programa principal: {e}")
+    finally:
+        # 4. Garante que a conexão seja fechada
+        if handler:
+            await handler.close_connection()
+            print("\nConexão com a Binance fechada com sucesso.")
+
 #         # 1. Cria a instância da classe usando o método de fábrica assíncrono
 #         handler = await BinanceHandler.create()
 
@@ -299,6 +378,6 @@ class BinanceHandler:
 #             await handler.close_connection()
 #             print("✅ Conexão fechada e script finalizado.")
 
-# if __name__ == "__main__":
-#     print("Iniciando script de teste do BinanceHandler...")
-#     asyncio.run(main())
+if __name__ == "__main__":
+    print("Iniciando script de teste do BinanceHandler...")
+    asyncio.run(main())

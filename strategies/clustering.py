@@ -8,11 +8,11 @@ async def SuperTrendAIClusteringAsync(binance, symbol, timeframe, atr_length=5, 
     retries = 0
     while retries < max_retries:
         try:
-            timeframe_in_ms = binance.parse_timeframe(timeframe) * 1000
-            limit = 1500
+            timeframe_in_ms = binance.client.parse_timeframe(timeframe) * 1000
+            limit = 1600
             now = int(time.time() * 1000)  # timestamp atual em milissegundos
             since = now - (limit * timeframe_in_ms) 
-            bars = await asyncio.to_thread(binance.fetch_ohlcv, symbol=symbol, since=since, timeframe=timeframe, limit=limit)
+            bars = await binance.client.fetch_ohlcv ( symbol=symbol, since=since, timeframe=timeframe, limit=limit)
             break
         except Exception as e:
             retries += 1
@@ -78,6 +78,12 @@ async def SuperTrendAIClusteringAsync(binance, symbol, timeframe, atr_length=5, 
             clusters[idx].append(val)
             factor_groups[idx].append(fac)
         new_centroids = [np.mean(clusters[i]) for i in range(3)]
+        # new_centroids = []
+        # for i in range(3):
+        #     if clusters[i]:
+        #         new_centroids.append(np.mean(clusters[i]))
+        #     else:
+        #         new_centroids.append(centroids[i])
         if np.allclose(new_centroids, centroids, atol=1e-5):
             break
         centroids = new_centroids
