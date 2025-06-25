@@ -15,7 +15,7 @@ from pydantic import Field
 import re
 import unicodedata
 import pandas as pd
-from utils.binance_client import conectar_binance
+from utils.binance_client import BinanceHandler
 import ccxt
 import asyncio
 import warnings
@@ -41,7 +41,7 @@ class CCXTGetBalance(BaseTool):
         Método de fábrica assíncrono para criar e inicializar a ferramenta.
         """
         # 1. Faz a conexão assíncrona
-        client = await conectar_binance()
+        client = await BinanceHandler()
         # 2. Cria a instância da classe, passando o cliente já conectado
         return cls(client=client, **kwargs)
 

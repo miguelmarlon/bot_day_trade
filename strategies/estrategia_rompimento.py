@@ -67,9 +67,9 @@ async def estrategia_rompimento_eth_altcoins(binance, context):
         async with GerenciamentoRiscoAsync() as gr:
             if not await gr.posicao_max(most_lagging, pos):
                 await binance.cancel_all_orders (most_lagging)
-                await binance.create_order,symbol= most_lagging (side=entrada, type= 'MARKET', amount= pos, params= {'hedged': 'true'})
-                await binance.create_order,symbol= most_lagging (side=saida, type='STOP_MARKET', amount= pos, params=  {'stopPrice': stop})
-                await binance.create_order,symbol= most_lagging (side=saida, type= 'TAKE_PROFIT_MARKET', amount=pos,params=  {'stopPrice': target})
+                await binance.create_order(symbol= most_lagging, side=entrada, type= 'MARKET', amount= pos, params= {'hedged': 'true'})
+                await binance.create_order(symbol= most_lagging, side=saida, type='STOP_MARKET', amount= pos, params=  {'stopPrice': stop})
+                await binance.create_order(symbol= most_lagging, side=saida, type= 'TAKE_PROFIT_MARKET', amount=pos,params=  {'stopPrice': target})
 
                 await context.bot.send_message(chat_id=chat_id, text=f"✅ Entrada em {most_lagging} ({rompimento.upper()})\n🎯 TP: {target:.4f} | 🛑 SL: {stop:.4f}")
             else:
