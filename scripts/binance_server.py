@@ -55,7 +55,7 @@ class CCXTGetBalance(BaseTool):
                 return {"success": True, "balance": balance_data[asset_upper]}
             else:
                 return {"success": True, "balance": {'asset': asset_upper, 'free': 0.0, 'used': 0.0, 'total': 0.0}}
-        except Exception as e: # Use ccxt_pro.ExchangeError se possível
+        except Exception as e:
             return {"success": False, "error": str(e)}
 
     def add(self, *args: Any, **kwargs: Any) -> None:

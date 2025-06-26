@@ -4,7 +4,8 @@ from dotenv import load_dotenv
 import pandas as pd
 from scripts.sentiment_analyzer import analisar_sentimento_openrouter, gerar_resumo
 from scripts.information_tools import get_economic_events_async, buscar_noticias_google
-from scripts.technical_analysis import calcular_indicadores, verificar_long_btc_1m, verificar_short_btc_1m, verificar_long, verificar_short
+from scripts.technical_analysis import calcular_indicadores, verificar_long, verificar_short
+from strategies.btc_1m import verificar_long_btc_1m, verificar_short_btc_1m
 import numpy as np
 from scripts.gerenciamento_risco_assin import GerenciamentoRiscoAsync
 from strategies.clustering import SuperTrendAIClusteringAsync
@@ -13,6 +14,7 @@ from strategies.estrategia_rompimento import trading_task_rompimento
 from utils.binance_client import BinanceHandler
 from config.config import TELEGRAM_TOKEN_BOT_TRADE
 from scripts.prediction_model import treina_modelo, predict
+from scripts.cryptos_select import selecionar_cryptos, calcular_tamanho_operacoes
 import logging
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext
@@ -32,6 +34,7 @@ async def start(update: Update, context: CallbackContext):
     await update.message.reply_text(
         "👋 Olá! Eu sou o *Falcon AI Bot*!\n\n"
         "Comandos disponíveis:\n"
+        "▫️ /selecionarMOEDAS – Seleciona as moedas com maior valor de mercado\n"
         "▫️ /operarXGB [timeframe] – Inicia o bot com candles de 1h, 2h, etc\n"
         "▫️ /pararXGB – Interrompe o bot\n"
         "▫️ /operar1mBTC – Inicia o bot scalper no 1m\n"
@@ -113,7 +116,8 @@ async def iniciar_bot(update: Update, context: CallbackContext):
     try:
         # Lê o argumento (ex: /operar 2h)
         tf = context.args[0] if context.args else '1h'
-
+        ALAVANCAGEM = 10  # Alavancagem padrão de 10x
+        TIPO_MARGEM = 'ISOLATED'
         # Timeframes válidos
         timeframes_validos = ['1m', '5m', '15m', '30m', '1h', '2h', '4h', '1d']
         if tf not in timeframes_validos:
@@ -167,19 +171,69 @@ async def iniciar_bot_simples(update: Update, context: CallbackContext):
         logger.error(f"Erro ao iniciar bot simples: {e}")
         await update.message.reply_text(f"❌ Erro ao iniciar bot simples: {str(e)}")
 
+async def selecionar_moedas_handler(update: Update, context: CallbackContext):
+    """
+    Função assíncrona chamada pelo handler do comando /selecionarMOEDAS.
+    
+    Args:
+        update (Update): Objeto que contém todas as informações da mensagem recebida.
+                         Fornecido automaticamente pela biblioteca python-telegram-bot.
+        context (ContextTypes.DEFAULT_TYPE): Objeto que pode ser usado para passar informações
+                                             entre diferentes handlers. Fornecido automaticamente.
+    """
+    
+    logger.info(f"Comando /selecionarMOEDAS recebido.")
+
+    try:
+        await update.message.reply_text("✅ Comando recebido! Iniciando o processo de análise e trade...")
+        
+        await update.message.reply_text("🔎 Etapa 1/2: Analisando mercado e indicadores...")
+        df = await selecionar_cryptos(limite_moedas=150)
+
+        await update.message.reply_text("🔍 Etapa 2/2: Calculando tamanhos de operações...")
+        df_resultado_analise = await calcular_tamanho_operacoes(df, margem_usd=10, limiar_compra=60, limiar_venda=30)
+
+        if not df_resultado_analise.empty:
+            # Pega a lista de moedas da coluna 'moeda'
+            longs = df_resultado_analise[df_resultado_analise['acao'] == 'LONG']
+            shorts = df_resultado_analise[df_resultado_analise['acao'] == 'SHORT']
+            mensagem_partes = []
+
+            if not longs.empty:
+                lista_longs = "\n".join(longs['symbol'])
+                mensagem_partes.append(f"Moedas para operações de LONG:\n{lista_longs}")
+            
+            if not shorts.empty:
+                lista_shorts = "\n".join(shorts['symbol'])
+                mensagem_partes.append(f"Moedas para operações de SHORT:\n{lista_shorts}")
+            
+            if mensagem_partes:
+                mensagem_resultado = "\n\n".join(mensagem_partes)
+                await update.message.reply_text(mensagem_resultado)
+            else:
+                await update.message.reply_text("ℹ️ Nenhuma moeda atendeu aos critérios para operação no momento.")
+        else:
+            await update.message.reply_text("ℹ️ Nenhuma moeda atendeu aos critérios da análise no momento.")
+        
+        await update.message.reply_text("✌️ Processo finalizado com sucesso!")
+
+    except Exception as e:
+        
+        logger.error(f"Erro ao executar a seleção de moedas: {e}", exc_info=True)
+        await update.message.reply_text(f"❌ Ocorreu um erro ao processar sua solicitação: {e}")
+        
 # FUNÇÕES DE ESTRATÉGIAS DIRETAS - NÃO IMPORT !
 async def trading_task(context):
     binance = None
     try:
+        ALAVANCAGEM = 10
+        TIPO_MARGEM = 'ISOLATED'
         chat_id = context.job.chat_id
         await context.bot.send_message(chat_id=chat_id, text="⏳ Executando análise de mercado...")
 
         binance = await BinanceHandler.create()
         gerenciador_risco = GerenciamentoRiscoAsync(binance_handler=binance)
-        # print("--- DEBUG INFO ---")
-        # print(f"Tipo da variável 'gerenciador_risco': {type(gerenciador_risco)}")
-        # print(f"Valor da variável 'gerenciador_risco': {gerenciador_risco}")
-        # print("--------------------")
+        
         async with gerenciador_risco as gr:
             df_config = pd.read_csv('config/cripto_tamanho_xgb.csv')  # 15 dolares com 10x
             df_config.dropna(inplace=True)
@@ -189,13 +243,20 @@ async def trading_task(context):
             for _, row in df_config.iterrows():
                 symbol = row['symbol']
                 posicao_max = row['tamanho']
+                tipo_operacao = row['acao']
+                #print(f"Analisando {symbol}, tamanho {posicao_max} no timeframe {timeframe}...")
 
+                binance.client.set_leverage(ALAVANCAGEM, symbol)
+                binance.client.set_margin_mode(TIPO_MARGEM, symbol)
                 await gr.fecha_pnl(symbol, loss=-25, target=50)
                 await binance.cancelar_todas_as_ordens(symbol, context)
 
                 df = await binance.obter_dados_candles(symbol=symbol, timeframe=timeframe)
                 df = calcular_indicadores(df)
                 #print(df)
+                if df.empty:
+                    logger.warning(f"DataFrame vazio para {symbol} no timeframe {timeframe}. Pulando para o próximo ativo.")
+                    continue
 
                 if not await gr.posicao_max(symbol, posicao_max):
                     side, amount, _, is_open, _, _, _ = await gr.posicoes_abertas(symbol)
@@ -208,11 +269,9 @@ async def trading_task(context):
                         amount = 0
 
                     tem_ordem_aberta = await gr.ultima_ordem_aberta(symbol)
-                    # print(tem_ordem_aberta)
-                    # print(side)
 
                     if not tem_ordem_aberta:
-                        if side != 'short' and verificar_long(df):
+                        if side != 'short' and verificar_long(df) and tipo_operacao == 'LONG':
                             model, scaler = treina_modelo(df)
                             preco_futuro = predict(df, model=model, scaler=scaler)
                             await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol}...")
@@ -220,7 +279,7 @@ async def trading_task(context):
                             if df['fechamento'].iloc[-1] <= preco_futuro:
                                 await binance.abrir_long(symbol, posicao_max, context)
 
-                        elif side != 'long' and verificar_short(df):
+                        elif side != 'long' and verificar_short(df) and tipo_operacao == 'SHORT':
                             model, scaler = treina_modelo(df)
                             preco_futuro = predict(df, model=model, scaler=scaler)
                             await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol}...")
@@ -491,6 +550,7 @@ def main():
 
         # Adiciona handlers
         application.add_handler(CommandHandler("ola", start))
+        application.add_handler(CommandHandler("selecionarMOEDAS", selecionar_moedas_handler))
         application.add_handler(CommandHandler("operarXGB", iniciar_bot))
         application.add_handler(CommandHandler("pararXGB", parar_bot))
         application.add_handler(CommandHandler("regime", regime_handler))

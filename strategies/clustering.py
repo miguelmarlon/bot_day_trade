@@ -9,7 +9,7 @@ async def SuperTrendAIClusteringAsync(binance, symbol, timeframe, atr_length=5, 
     while retries < max_retries:
         try:
             timeframe_in_ms = binance.client.parse_timeframe(timeframe) * 1000
-            limit = 1600
+            limit = 1800
             now = int(time.time() * 1000)  # timestamp atual em milissegundos
             since = now - (limit * timeframe_in_ms) 
             bars = await binance.client.fetch_ohlcv ( symbol=symbol, since=since, timeframe=timeframe, limit=limit)

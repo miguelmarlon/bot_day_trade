@@ -4,7 +4,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 import ccxt
 import ccxt.pro as ccxt_pro
 # FORMA ANTIGA E INCORRETA
-from ccxt import ExchangeError, AuthenticationError, NetworkError, RequestTimeout
+from ccxt import AuthenticationError, NetworkError, RequestTimeout
 import pandas as pd
 import asyncio
 import time
@@ -92,9 +92,6 @@ class BinanceHandler:
                     f"💲**Preço de Entrada:** {ask}\n"
                     f"📊**Quantidade:** {posicao_max} {symbol.split('/')[0]}"
                 )
-            except ccxt_pro.ExchangeError as e:
-                print(f"**** Problema de comunicação com a corretora! Erro: {e} ****")
-                msg = f"❌ Erro da Corretora em {symbol}: {e}"
             except Exception as e:
                 print(f"**** Problema ao abrir short! Erro: {e} ****")
                 msg = f"❌ Erro ao abrir short em {symbol}: {e}"
@@ -136,9 +133,6 @@ class BinanceHandler:
                 print(msg)
             except RequestTimeout as e:
                 msg = f"⏳ ERRO DE TIMEOUT: A resposta da Binance demorou muito. Tentando novamente no próximo ciclo. Detalhes: {e}#"
-                print(msg)
-            except ExchangeError as e:
-                msg = f"❌ Erro da Corretora em {symbol}: {e}"
                 print(msg)
             except Exception as e:
                 msg = f"❌ Erro ao abrir long em {symbol}: {e}"
@@ -188,9 +182,6 @@ class BinanceHandler:
         except RequestTimeout as e:
             msg = f"⏳ ERRO DE TIMEOUT: A resposta da Binance demorou muito. Tentando novamente no próximo ciclo. Detalhes: {e}#"
             print(msg)
-        except ExchangeError as e:
-            msg = f"❌ Erro da Corretora: {e}"
-            print(msg)
         except Exception as e:
             msg = f"❌ Erro na função get_balance: {e}"
             print(msg)
@@ -216,9 +207,6 @@ class BinanceHandler:
         except RequestTimeout as e:
             msg = f"⏳ ERRO DE TIMEOUT: A resposta da Binance demorou muito. Tentando novamente no próximo ciclo. Detalhes: {e}#"
             print(msg)
-        except ExchangeError as e:
-            print(f"Erro ao buscar preço para {symbol.upper()}: {e}")
-            return {"error": str(e)}
         except Exception as e:
             msg = f"❌ Erro ao abrir long em {symbol}: {e}"
             print(msg)
@@ -256,9 +244,6 @@ class BinanceHandler:
         except RequestTimeout as e:
             msg = f"⏳ ERRO DE TIMEOUT: A resposta da Binance demorou muito. Tentando novamente no próximo ciclo. Detalhes: {e}#"
             print(msg)
-        except ExchangeError as e:
-            print(f"Erro ao buscar preço para:: {e}")
-            return {"error": str(e)}
         except Exception as e:
             msg = f"❌ Erro na função list_assets_by_price: {e}"
             print(msg)
@@ -314,8 +299,6 @@ class BinanceHandler:
         except RequestTimeout as e:
             msg = f"⏳ ERRO DE TIMEOUT: A resposta da Binance demorou muito. Tentando novamente no próximo ciclo. Detalhes: {e}#"
             print(msg)
-        except ExchangeError as e:
-            print(f"Erro ao buscar preço para:: {e}")
             return {"error": str(e)}
         except Exception as e:
             msg = f"❌ Erro na função get_volume_report: {e}"
@@ -323,30 +306,30 @@ class BinanceHandler:
         finally:
             await self.close_connection()
 
-async def main():
-    """
-    Função principal assíncrona para demonstrar o uso do BinanceHandler.
-    """
-    handler = None
-    try:
-        handler = await BinanceHandler.create()
+# async def main():
+#     """
+#     Função principal assíncrona para demonstrar o uso do BinanceHandler.
+#     """
+#     handler = None
+#     try:
+#         handler = await BinanceHandler.create()
         
-        print("\nBuscando as 10 moedas com maior volume em USDT...")
+#         print("\nBuscando as 10 moedas com maior volume em USDT...")
         
-        # 2. Chama o novo método da classe
-        top_10_usdt = await handler.get_volume_report(quote_currency='USDT', limit=50)
-        print(top_10_usdt)
-        # 3. Processa o resultado retornado pelo método
+#         # 2. Chama o novo método da classe
+#         top_10_usdt = await handler.get_volume_report(quote_currency='USDT', limit=50)
+#         print(top_10_usdt)
+#         # 3. Processa o resultado retornado pelo método
         
-        print("\n" + "="*50 + "\n")
+#         print("\n" + "="*50 + "\n")
 
-    except Exception as e:
-        print(f"Ocorreu um erro no programa principal: {e}")
-    finally:
-        # 4. Garante que a conexão seja fechada
-        if handler:
-            await handler.close_connection()
-            print("\nConexão com a Binance fechada com sucesso.")
+#     except Exception as e:
+#         print(f"Ocorreu um erro no programa principal: {e}")
+#     finally:
+#         # 4. Garante que a conexão seja fechada
+#         if handler:
+#             await handler.close_connection()
+#             print("\nConexão com a Binance fechada com sucesso.")
 
 #         # 1. Cria a instância da classe usando o método de fábrica assíncrono
 #         handler = await BinanceHandler.create()
@@ -378,6 +361,6 @@ async def main():
 #             await handler.close_connection()
 #             print("✅ Conexão fechada e script finalizado.")
 
-if __name__ == "__main__":
-    print("Iniciando script de teste do BinanceHandler...")
-    asyncio.run(main())
+# if __name__ == "__main__":
+#     print("Iniciando script de teste do BinanceHandler...")
+#     asyncio.run(main())
