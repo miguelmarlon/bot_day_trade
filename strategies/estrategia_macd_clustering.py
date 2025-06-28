@@ -145,4 +145,4 @@ async def trading_task_macd_clustering(context):
         await context.bot.send_message(chat_id=context.job.chat_id, text=f"❌ Erro no MACD Clustering: {e}")
     
     finally:
-        await binance.close()
+        await binance.close_connection()

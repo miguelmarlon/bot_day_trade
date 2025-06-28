@@ -271,21 +271,29 @@ async def trading_task(context):
                     tem_ordem_aberta = await gr.ultima_ordem_aberta(symbol)
 
                     if not tem_ordem_aberta:
-                        if side != 'short' and verificar_long(df) and tipo_operacao == 'LONG':
+                        if side != 'short' and verificar_long(df): #and tipo_operacao == 'LONG':
+                            await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol} (LONG)...")
                             model, scaler = treina_modelo(df)
                             preco_futuro = predict(df, model=model, scaler=scaler)
-                            await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol}...")
+                            # await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol} (LONG)...")
+                            await context.bot.send_message(chat_id=chat_id, text=f"💰 Preço futuro previsto para {symbol}: {preco_futuro}")
 
                             if df['fechamento'].iloc[-1] <= preco_futuro:
                                 await binance.abrir_long(symbol, posicao_max, context)
+                            else:
+                                await context.bot.send_message(chat_id=chat_id, text=f"❌Não foi possível abrir posição pois o valor real {df['fechamento'].iloc[-1]} é maior que o valor previsto {preco_futuro} para {symbol} (LONG).")
 
-                        elif side != 'long' and verificar_short(df) and tipo_operacao == 'SHORT':
+                        elif side != 'long' and verificar_short(df): #and tipo_operacao == 'SHORT':
+                            await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol} (SHORT)...")
                             model, scaler = treina_modelo(df)
                             preco_futuro = predict(df, model=model, scaler=scaler)
-                            await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol}...")
+                            await context.bot.send_message(chat_id=chat_id, text=f"💰 Preço futuro previsto para {symbol}: {preco_futuro}")
+                            #await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol} (SHORT)...")
 
                             if df['fechamento'].iloc[-1] >= preco_futuro:
                                 await binance.abrir_short(symbol, posicao_max, context)
+                            else:
+                                await context.bot.send_message(chat_id=chat_id, text=f"❌Não foi possível abrir posição pois o valor real {df['fechamento'].iloc[-1]} é menor que o valor previsto {preco_futuro} para {symbol} (SHORT).")
 
     except Exception as e:
         logger.error(f"Erro no trading task: {e}")
