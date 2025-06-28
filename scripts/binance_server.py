@@ -376,7 +376,7 @@ class BinanceGetTechnicalIndicators(BaseTool):
             bollinger_bands = self.calculate_bollinger_bands(data)
             stochastic = self.calculate_stochastic(data)
             pivot_points = self.calcular_pivot_points_em_coluna(data)
-
+            
             result = {
             "success": True,
             "data": {

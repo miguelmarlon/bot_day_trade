@@ -50,8 +50,9 @@ async def selecionar_cryptos(limite_moedas=100):
             
                 df_candles = await handler.obter_dados_candles(symbol=symbol, timeframe='1d', limit=500)
                 print(f"Coletando dados para {symbol}...")
-                # print(df_candles.tail())
+                #print(df_candles.tail())
                 df_indicadores = calcular_indicadores(df_candles)
+                # print(df_indicadores.tail())
                 if not df_indicadores.empty:
                     
                     prompt = f"""
@@ -77,17 +78,31 @@ async def selecionar_cryptos(limite_moedas=100):
                     Volume: {df_indicadores['volume'].iloc[-1]}
 
                     Apresentou os seguintes indicadores:
-                    RSI: {df_indicadores['RSI'].iloc[-1]}
-                    MACD: {df_indicadores['MACD_12_26_9'].iloc[-1]}
-                    MACD Histórico: {df_indicadores['MACDh_12_26_9'].iloc[-1]}
-                    MACD Signal: {df_indicadores['MACDs_12_26_9'].iloc[-1]}
-                    EMA_20: {df_indicadores['EMA_20'].iloc[-1]}
-                    EMA_50: {df_indicadores['EMA_50'].iloc[-1]}
-                    EMA_200: {df_indicadores['EMA_200'].iloc[-1]}
-                    ATR: {df_indicadores['ATR'].iloc[-1]}
-                    CCI: {df_indicadores['CCI'].iloc[-1]}
-                    WILLIAMS_R: {df_indicadores['WILLIAMS_R'].iloc[-1]}
-                    Momentum: {df_indicadores['Momentum'].iloc[-1]}
+                    - RSI: {df_indicadores['RSI'].iloc[-1]}
+                    - MACD: {df_indicadores['MACD_12_26_9'].iloc[-1]}
+                    - MACD Histórico: {df_indicadores['MACDh_12_26_9'].iloc[-1]}
+                    - MACD Signal: {df_indicadores['MACDs_12_26_9'].iloc[-1]}
+                    - EMA_20: {df_indicadores['EMA_20'].iloc[-1]}
+                    - EMA_50: {df_indicadores['EMA_50'].iloc[-1]}
+                    - SMA_50: {df_indicadores['SMA_50'].iloc[-1]}
+                    - SMA_200: {df_indicadores['SMA_200'].iloc[-1]}
+                    - MFI: {df_indicadores['MFI_14'].iloc[-1]}
+                    - ATR: {df_indicadores['ATR'].iloc[-1]}
+                    - CCI: {df_indicadores['CCI'].iloc[-1]}
+                    - WILLIAMS_R: {df_indicadores['WILLIAMS_R'].iloc[-1]}
+                    - Momentum: {df_indicadores['Momentum'].iloc[-1]}
+                    - Bollinger Upper: {df_indicadores['BBU'].iloc[-1]}
+                    - Bollinger Middle: {df_indicadores['BBM'].iloc[-1]}
+                    - Bollinger Lower: {df_indicadores['BBL'].iloc[-1]}
+                    - Pivot: {df_indicadores['PP'].iloc[-1]}
+                    - Pivot R1: {df_indicadores['R1'].iloc[-1]}
+                    - Pivot S1: {df_indicadores['S1'].iloc[-1]}
+                    - Pivot R2: {df_indicadores['R2'].iloc[-1]}
+                    - Pivot S2: {df_indicadores['S2'].iloc[-1]}
+                    - Pivot R3: {df_indicadores['R3'].iloc[-1]}
+                    - Pivot S3: {df_indicadores['S3'].iloc[-1]}
+                    - Stochastic K: {df_indicadores['STOCHk_14_3_3'].iloc[-1]}
+                    - Stochastic D: {df_indicadores['STOCHd_14_3_3'].iloc[-1]}
 
                     Com base nesses indicadores e no comportamento histórico recente, 
                     avalie a probabilidade de um movimento de alta para o ativo 
@@ -116,7 +131,7 @@ async def selecionar_cryptos(limite_moedas=100):
 
                         notas_modelos[modelo] = nota
                         
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(3)
                     print('#' * 50)
                     notas_validas = [v for k, v in notas_modelos.items() if k != 'symbol' and isinstance(v, (int, float))]
                     notas_modelos['media'] = sum(notas_validas) / len(notas_validas) if notas_validas else None

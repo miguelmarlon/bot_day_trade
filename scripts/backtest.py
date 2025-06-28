@@ -51,7 +51,7 @@ def calcular_retorno_sinais(df: pd.DataFrame, horizontes: list = [5, 10, 20, 30,
             )
             
             # Atribua os retornos calculados à nova coluna
-            df_result[col_name] = float(retornos_finais)
+            df_result[col_name] = retornos_finais 
             
             # Opcional: Se quiser, pode limpar os retornos onde o sinal não é 1 ou -1
             # (embora o np.where já faça isso ao atribuir NaN para sinal=0)

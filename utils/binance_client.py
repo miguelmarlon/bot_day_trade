@@ -101,12 +101,16 @@ class BinanceHandler:
     async def abrir_long(self, symbol, posicao_max, context):
 
         from scripts.gerenciamento_risco_assin import GerenciamentoRiscoAsync
-
+        ALAVANCAGEM = 10
+        TIPO_MARGEM = 'ISOLATED'
         gerenciador_risco = GerenciamentoRiscoAsync(binance_handler=self)
         async with gerenciador_risco as gr:
             try:
                 bid, ask = await gr.livro_ofertas(symbol)
                 bid = self.client.price_to_precision(symbol, bid)
+
+                await self.client.set_leverage(ALAVANCAGEM, symbol)
+                await self.client.set_margin_mode(TIPO_MARGEM, symbol)
                 
                 await self.client.create_order(
                     symbol,

@@ -221,10 +221,10 @@ async def aplicar_monte_carlo_backtest(binance,
         # Lógica para gerar o sinal
         sinal = 0
         # Sinal de compra: preço atual abaixo da banda inferior projetada E RSI em zona de sobrevenda
-        if current_price < lower_band_proj: #and 30 <= rsi_atual <= 42: # Condições de RSI ajustadas para compra
+        if current_price < lower_band_proj and 30 <= rsi_atual <= 42: # Condições de RSI ajustadas para compra
             sinal = 1
         # Sinal de venda: preço atual acima da banda superior projetada E RSI em zona de sobrecompra
-        elif current_price > upper_band_proj: #and 58 <= rsi_atual <= 70 # Condições de RSI ajustadas para venda
+        elif current_price > upper_band_proj and 58 <= rsi_atual <= 70: # Condições de RSI ajustadas para venda
             sinal = -1
 
         # --- 5. Armazenamento dos Resultados ---
@@ -396,11 +396,11 @@ async def main():
     try:
         binance = await BinanceHandler.create()
         df = await estrategia_anchored_monte_carlo(binance=binance, symbol='BTC/USDT', csv=True)
-        print(df.tail(20))  # Exibe as últimas linhas do DataFrame para verificar os resultados
+        # print(df.tail(20))  # Exibe as últimas linhas do DataFrame para verificar os resultados
         df.to_csv(f'outputs/sinais_monte_carlo.csv', index=False)
         
         if df is not None:
-            retorno = calcular_retorno_sinais(df, horizontes=[5, 10, 20, 30])
+            retorno = calcular_retorno_sinais(df, horizontes=[5, 10, 20, 30, 60, 120])
             retorno.to_csv(f'outputs/calculo_retorno_monte_carlo.csv', index=False)
         else:
             print("Nenhum dado retornado da estratégia Anchored Monte Carlo.")

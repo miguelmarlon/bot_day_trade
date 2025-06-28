@@ -226,8 +226,8 @@ async def selecionar_moedas_handler(update: Update, context: CallbackContext):
 async def trading_task(context):
     binance = None
     try:
-        ALAVANCAGEM = 10
-        TIPO_MARGEM = 'ISOLATED'
+        # ALAVANCAGEM = 10
+        # TIPO_MARGEM = 'ISOLATED'
         chat_id = context.job.chat_id
         await context.bot.send_message(chat_id=chat_id, text="⏳ Executando análise de mercado...")
 
@@ -246,8 +246,9 @@ async def trading_task(context):
                 tipo_operacao = row['acao']
                 #print(f"Analisando {symbol}, tamanho {posicao_max} no timeframe {timeframe}...")
 
-                binance.client.set_leverage(ALAVANCAGEM, symbol)
-                binance.client.set_margin_mode(TIPO_MARGEM, symbol)
+                # await binance.client.set_leverage(ALAVANCAGEM, symbol)
+                # await binance.client.set_margin_mode(TIPO_MARGEM, symbol)
+                
                 await gr.fecha_pnl(symbol, loss=-25, target=50)
                 await binance.cancelar_todas_as_ordens(symbol, context)
 
