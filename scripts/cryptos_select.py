@@ -159,7 +159,7 @@ async def selecionar_cryptos(limite_moedas=100):
             await handler.close_connection()
             print("Conexão com o BinanceHandler fechada.")
 
-async def calcular_tamanho_operacoes(df_sinais, margem_usd, limiar_compra, limiar_venda):
+async def calcular_tamanho_operacoes(df_sinais, limiar_compra, limiar_venda):
     """
     Calcula o tamanho das operações de compra ou venda para uma lista de ativos.
 
@@ -226,37 +226,56 @@ async def calcular_tamanho_operacoes(df_sinais, margem_usd, limiar_compra, limia
                         float(min_amount)  # Garantindo que min_amount seja um float
                         print(f"Regras de mercado para {symbol}: Custo mínimo: {min_cost}, Quantidade mínima: {min_amount}")
 
-                        quantidade_calculada = margem_usd / preco_final
-                        valor_total = quantidade_calculada * preco_final
+                        # quantidade_calculada = margem_usd / preco_final
+                        # valor_total = quantidade_calculada * preco_final
                         
-                        # Verificações antes de continuar
-                        if quantidade_calculada < min_amount:
-                            print(f"Quantidade {quantidade_calculada:.8f} menor que mínimo permitido ({min_amount}) para {symbol}. Pulando.")
-                            acao = "MARGEM_INSUFICIENTE"
-                            quantidade_formatada = None
+                        # # Verificações antes de continuar
+                        # if quantidade_calculada < min_amount:
+                        #     print(f"Quantidade {quantidade_calculada:.8f} menor que mínimo permitido ({min_amount}) para {symbol}. Pulando.")
+                        #     acao = "MARGEM_INSUFICIENTE"
+                        #     quantidade_formatada = None
 
-                        elif valor_total < min_cost:
-                            print(f"Valor da ordem ${valor_total:.2f} menor que custo mínimo (${min_cost}) para {symbol}. Pulando.")
-                            acao = "MARGEM_INSUFICIENTE"
-                            quantidade_formatada = None
+                        # elif valor_total < min_cost:
+                        #     print(f"Valor da ordem ${valor_total:.2f} menor que custo mínimo (${min_cost}) para {symbol}. Pulando.")
+                        #     acao = "MARGEM_INSUFICIENTE"
+                        #     quantidade_formatada = None
 
+                        # else:
+                        #     quantidade_formatada = handler.client.amount_to_precision(symbol, quantidade_calculada)
+                        capital = 0
+
+                        if min_cost < 5:
+                            capital = 7
+                        elif min_cost < 10:
+                            capital = 15
+                        elif min_cost > 15:
+                            capital = 20
+                        
+                        if capital > 0:
+                            dado = await handler.get_price(symbol)
+                            valor_moeda = dado['price']
+                            float(valor_moeda)
+                            quantidade = capital / valor_moeda
+                            quantidade_formatada = handler.client.amount_to_precision(symbol, quantidade)
+                            print(f"Capital a investir: {capital}, Quantidade formatada: {quantidade_formatada}")
                         else:
-                            quantidade_formatada = handler.client.amount_to_precision(symbol, quantidade_calculada)
-                          
+                            print(f"Não foi possível definir o capital para min_cost = {min_cost}. Verifique as condições.")
+                            quantidade_formatada = 0
+
                         if acao in ["LONG", "SHORT"]:
                             resultados.append({
                                 'symbol': symbol,
                                 'media': media,
                                 'acao': acao,
-                                'tamanho': float(quantidade_formatada) # Agora é seguro converter para float
+                                'tamanho': float(quantidade_formatada) 
                             })
                             print(f"Resultado para {symbol}: Ação={acao}, Tamanho={quantidade_formatada}")
                         else:
-                            # Adiciona um registro de falha para análise posterior (opcional, mas recomendado)
+                            
                             resultados.append({
                                 'symbol': symbol,
                                 'media': media,
-                                'acao': acao, # Vai registrar "MARGEM_INSUFICIENTE" ou "ERRO_PRECO"
+                                'acao': acao,
                                 'tamanho': 0.0
                             })
                             print(f"Operação para {symbol} não realizada. Motivo: {acao}")
@@ -265,7 +284,7 @@ async def calcular_tamanho_operacoes(df_sinais, margem_usd, limiar_compra, limia
                 
                 except Exception as e:
                     print(f"Erro ao calcular tamanho da operação para {symbol}: {e}")
-        a=1
+        
         df_resultados = pd.DataFrame(resultados)
         df_resultados.to_csv('config/cripto_tamanho_xgb.csv', index=False)
         df_resultados.to_csv('config/cripto_tamanho_macd.csv', index=False)

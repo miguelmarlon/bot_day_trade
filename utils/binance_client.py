@@ -190,7 +190,7 @@ class BinanceHandler:
             msg = f"❌ Erro na função get_balance: {e}"
             print(msg)
 
-    async def get_price(self, symbol: str) -> dict:
+    async def get_price(self, symbol: str):
         """
         Busca o preço atual de um par de negociação (ex: 'BTC/USDT').
         """
@@ -200,7 +200,7 @@ class BinanceHandler:
             ticker = await self.client.fetch_ticker(symbol.upper())
             return {
                 "symbol": symbol.upper(),
-                "price": ticker.get('last') # 'last' é o preço da última transação
+                "price": ticker.get('last')
             }
         except AuthenticationError as e:
             msg = f"❌ ERRO DE AUTENTICAÇÃO: Verifique suas chaves de API e permissões. Detalhes: {e}"

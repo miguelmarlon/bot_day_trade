@@ -9,112 +9,6 @@ import pandas_ta as ta
 import asyncio
 from scripts.backtest import calcular_retorno_sinais
 
-# async def estrategia_anchored_monte_carlo(binance, 
-#                                           symbol, 
-#                                           timeframe='5m', 
-#                                           anchor_date_str = "2025-06-23 21:00:00", 
-#                                           lookback_bars = 60,
-#                                           simulation_count = 500, 
-#                                           forecast_horizon = 30, 
-#                                           randomize_direction = True):
-#     try:
-#         # Coleta de candles
-#         limit = 1500
-#         timeframe_in_ms = binance.client.parse_timeframe(timeframe) * 1000
-#         now = int(time.time() * 1000)  # timestamp atual em milissegundos
-#         since = now - (limit * timeframe_in_ms)
-
-#         bars = await binance.client.fetch_ohlcv (symbol=symbol, since=since, timeframe= timeframe, limit=limit)
-#         data = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-#         data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
-#         data.set_index('timestamp', inplace=True)
-#         close_prices = data['close']
-        
-#         # --- Definir ponto de ancoragem ---
-#         anchor_dt = pd.to_datetime(anchor_date_str)
-#         historical_data_for_changes = close_prices.loc[anchor_dt:].iloc[:lookback_bars + 1]
-
-
-#         if len(historical_data_for_changes) < lookback_bars + 1:
-#             print(f"Aviso: Dados insuficientes ({len(historical_data_for_changes)} barras) a partir da data de ancoragem para o lookback ({lookback_bars}). Ajustando lookback.")
-#             lookback_bars = len(historical_data_for_changes) - 1
-#             if lookback_bars <= 0:
-#                 print("Dados insuficientes para a simulação após o ajuste. Encerrando.")
-#                 return data
-#             historical_data_for_changes = close_prices.loc[anchor_dt:].iloc[:lookback_bars + 1]
-        
-#         # Calcular as mudanças percentuais (retornos) dentro desta janela histórica
-#         # Usamos pct_change para obter as "mudanças de preço" mencionadas na LuxAlgo [1]
-#         historical_changes = historical_data_for_changes.pct_change().dropna().values
-#         current_price = close_prices.iloc[-1]
-#         simulated_paths = np.zeros((forecast_horizon, simulation_count))
-
-#         # # --- Simulação Monte Carlo ---
-#         # for i in range(simulation_count):
-#         #     changes_for_this_simulation = historical_changes.copy()
-#         #     if randomize_direction:
-#         #         for j in range(len(changes_for_this_simulation)):
-#         #             if j % 2!= 0: # Para cada elemento alternado (e.g., 2º, 4º, etc.)
-#         #                 changes_for_this_simulation[j] *= -1
-
-#         for i in range(simulation_count):
-#             changes_for_this_simulation = historical_changes.copy()
-#             if randomize_direction:
-#                 changes_for_this_simulation[1::2] *= -1  # Inverte a direção de cada 2º, 4º, etc.
-
-
-#             # Embaralhar a ordem das mudanças de preço [1]
-#             np.random.shuffle(changes_for_this_simulation)
-
-#             # # Projetar os preços futuros para este caminho de simulação
-#             # path = np.empty(forecast_horizon)
-#             # path[0] = current_price * (1 + changes_for_this_simulation[0])
-#             # for t in range(1, forecast_horizon):
-#             #     change = changes_for_this_simulation[t % len(changes_for_this_simulation)]
-#             #     path[t] = path[t-1] * (1 + change)
-
-#             path = np.zeros(forecast_horizon)
-#             path[0] = current_price * (1 + changes_for_this_simulation[0])
-#             for t in range(1, forecast_horizon):
-#                 change = changes_for_this_simulation[t % len(changes_for_this_simulation)]
-#                 path[t] = path[t - 1] * (1 + change)
-
-#             simulated_paths[:, i] = path
-
-#         # --- Cálculo das bandas ---
-#         average_line = np.mean(simulated_paths, axis=1)
-#         std_dev_at_each_step = np.std(simulated_paths, axis=1)
-
-        # std_dev_multiplier = 1.0 
-
-        # upper_band = average_line + std_dev_multiplier * std_dev_at_each_step
-        # lower_band = average_line - std_dev_multiplier * std_dev_at_each_step
-
-    #     upper_band = average_line + std_dev_at_each_step
-    #     lower_band = average_line - std_dev_at_each_step
-
-    #     #--- 5. calculando o RSI ---
-    #     data['RSI'] = ta.rsi(data['close'], length=14)
-
-    #     # --- Sinal com base no último valor ---
-    #     last_rsi = data['RSI'].iloc[-1]
-    #     sinal = None
-
-    #     if current_price < lower_band[-1] and 58 <= last_rsi <= 70:
-    #             sinal = 1
-    #     elif current_price > upper_band[-1] and 30 <= last_rsi <= 42:
-    #             sinal = -1
-
-    #         # --- Salvar valores no DataFrame ---
-    #     data.loc[data.index[-1], 'upper_band'] = upper_band[-1]
-    #     data.loc[data.index[-1], 'lower_band'] = lower_band[-1]
-    #     data.loc[data.index[-1], 'sinal'] = sinal if sinal else 0
-
-    #     return data
-    # except Exception as e:
-    #     print(f"Erro na estratégia Anchored Monte Carlo: {e}")
-    #     return None
-
 async def aplicar_monte_carlo_backtest(binance, 
                                           symbol, 
                                           timeframe='5m', 
@@ -250,7 +144,7 @@ async def estrategia_anchored_monte_carlo(binance,
     try:
         if csv == True:
             # Primeiro, conta o número total de linhas (inclui o cabeçalho)
-            with open('./outputs/btcusd_1min_data.csv') as f:
+            with open('./outputs/btc_60min.csv') as f:
                 total_linhas = sum(1 for _ in f)
 
             # Calcula quantas linhas pular (menos o cabeçalho)
@@ -259,7 +153,7 @@ async def estrategia_anchored_monte_carlo(binance,
                 linhas_a_pular = 0  # Garante que não pula linhas a mais do que o arquivo tem
 
             # Lê apenas as últimas 100000 linhas
-            data = pd.read_csv('./outputs/btcusd_1min_data.csv', skiprows=range(1, linhas_a_pular))
+            data = pd.read_csv('./outputs/btc_60min.csv', skiprows=range(1, linhas_a_pular))
             data.rename(columns={
                             'Timestamp': 'timestamp',
                             'Open': 'open',
@@ -283,8 +177,8 @@ async def estrategia_anchored_monte_carlo(binance,
             bars = await binance.client.fetch_ohlcv(symbol=symbol, since=since, timeframe=timeframe, limit=limit)
             data = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
 
-        data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
-        data.set_index('timestamp', inplace=True)
+        # data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
+        # data.set_index('timestamp', inplace=True)
         
         # Verifica se há dados suficientes
         if len(data) < lookback_bars + forecast_horizon:
@@ -300,9 +194,9 @@ async def estrategia_anchored_monte_carlo(binance,
         data['lower_band_proj'] = np.nan
         data['sinal'] = np.nan
         
-        print("Dados coletados e preparados:")
-        print(data.tail()) # Mostra as últimas linhas para verificar
-        print(f"Total de {len(data)} barras coletadas.")
+        # print("Dados coletados e preparados:")
+        # print(data.tail()) # Mostra as últimas linhas para verificar
+        # print(f"Total de {len(data)} barras coletadas.")
 
         # --- 2. Loop Principal para Backtest e Simulação Monte Carlo ---
         # Iteramos sobre os dados para aplicar a simulação Monte Carlo em cada ponto
@@ -397,11 +291,11 @@ async def main():
         binance = await BinanceHandler.create()
         df = await estrategia_anchored_monte_carlo(binance=binance, symbol='BTC/USDT', csv=True)
         # print(df.tail(20))  # Exibe as últimas linhas do DataFrame para verificar os resultados
-        df.to_csv(f'outputs/sinais_monte_carlo.csv', index=False)
+        df.to_csv(f'outputs/sinais_monte_carlo_60min.csv', index=False)
         
         if df is not None:
             retorno = calcular_retorno_sinais(df, horizontes=[5, 10, 20, 30, 60, 120])
-            retorno.to_csv(f'outputs/calculo_retorno_monte_carlo.csv', index=False)
+            retorno.to_csv(f'outputs/calculo_retorno_monte_carlo_60min.csv', index=False)
         else:
             print("Nenhum dado retornado da estratégia Anchored Monte Carlo.")
     except Exception as e:
