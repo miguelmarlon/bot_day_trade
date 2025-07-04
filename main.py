@@ -254,7 +254,7 @@ async def trading_task(context):
 
                 df = await binance.obter_dados_candles(symbol=symbol, timeframe=timeframe)
                 df = calcular_indicadores(df)
-                #print(df)
+                
                 if df.empty:
                     logger.warning(f"DataFrame vazio para {symbol} no timeframe {timeframe}. Pulando para o próximo ativo.")
                     continue
@@ -279,7 +279,7 @@ async def trading_task(context):
                             # await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol} (LONG)...")
                             await context.bot.send_message(chat_id=chat_id, text=f"💰 Preço futuro previsto para {symbol}: {preco_futuro}")
 
-                            if df['fechamento'].iloc[-1] <= preco_futuro:
+                            if df['close'].iloc[-1] <= preco_futuro:
                                 await binance.abrir_long(symbol, posicao_max, context)
                             else:
                                 await context.bot.send_message(chat_id=chat_id, text=f"❌Não foi possível abrir posição: a predição da IA e de QUEDA.")
@@ -291,7 +291,7 @@ async def trading_task(context):
                             await context.bot.send_message(chat_id=chat_id, text=f"💰 Preço futuro previsto para {symbol}: {preco_futuro}")
                             #await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol} (SHORT)...")
 
-                            if df['fechamento'].iloc[-1] >= preco_futuro:
+                            if df['close'].iloc[-1] >= preco_futuro:
                                 await binance.abrir_short(symbol, posicao_max, context)
                             else:
                                 await context.bot.send_message(chat_id=chat_id, text=f"❌Não foi possível abrir posição: a predição da IA e de ALTA.")

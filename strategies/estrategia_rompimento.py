@@ -19,11 +19,11 @@ async def estrategia_rompimento_eth_altcoins(binance, context):
         now = int(time.time() * 1000)  # timestamp atual em milissegundos
         since = now - (limit * timeframe_in_ms) 
         bars = await binance.fetch_ohlcv (symbol=symbol, timeframe=timeframe, limit=limit)
-        df = pd.DataFrame(bars, columns=['timestamp', 'abertura', 'max', 'min', 'fechamento', 'volume'])
+        df = pd.DataFrame(bars, columns=['timestamp', 'open', 'max', 'min', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True).map(lambda x: x.tz_convert('America/Sao_Paulo'))
 
-        suporte = df['min'].rolling(window=50).min().iloc[-2]
-        resistencia = df['max'].rolling(window=50).max().iloc[-2]
+        suporte = df['low'].rolling(window=50).min().iloc[-2]
+        resistencia = df['high'].rolling(window=50).max().iloc[-2]
         eth_price = await binance.fetch_trades (symbol)[-1]['price']
 
         alt_coins = pd.read_csv('cripto_tamanho_rompimento.csv')  # ajuste o caminho se necessário

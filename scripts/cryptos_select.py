@@ -57,24 +57,24 @@ async def selecionar_cryptos(limite_moedas=100):
                     
                     prompt = f"""
                     O ativo {symbol} apresentou os seguintes dados no antepenúltimo candlestick:
-                    Abertura: {df_indicadores['abertura'].iloc[-3]}
-                    Fechamento: {df_indicadores['fechamento'].iloc[-3]}
-                    Máximo: {df_indicadores['max'].iloc[-3]}
-                    Mínimo: {df_indicadores['min'].iloc[-3]}
+                    Abertura: {df_indicadores['open'].iloc[-3]}
+                    Fechamento: {df_indicadores['close'].iloc[-3]}
+                    Máximo: {df_indicadores['high'].iloc[-3]}
+                    Mínimo: {df_indicadores['low'].iloc[-3]}
                     Volume: {df_indicadores['volume'].iloc[-3]}
 
                     Penúltimo candlestick:
-                    Abertura: {df_indicadores['abertura'].iloc[-2]}
-                    Fechamento: {df_indicadores['fechamento'].iloc[-2]}
-                    Máximo: {df_indicadores['max'].iloc[-2]}
-                    Mínimo: {df_indicadores['min'].iloc[-2]}
+                    Abertura: {df_indicadores['open'].iloc[-2]}
+                    Fechamento: {df_indicadores['close'].iloc[-2]}
+                    Máximo: {df_indicadores['high'].iloc[-2]}
+                    Mínimo: {df_indicadores['low'].iloc[-2]}
                     Volume: {df_indicadores['volume'].iloc[-2]}
 
                     Último candlestick:
-                    Abertura: {df_indicadores['abertura'].iloc[-1]}
-                    Fechamento: {df_indicadores['fechamento'].iloc[-1]}
-                    Máximo: {df_indicadores['max'].iloc[-1]}
-                    Mínimo: {df_indicadores['min'].iloc[-1]}
+                    Abertura: {df_indicadores['open'].iloc[-1]}
+                    Fechamento: {df_indicadores['close'].iloc[-1]}
+                    Máximo: {df_indicadores['high'].iloc[-1]}
+                    Mínimo: {df_indicadores['low'].iloc[-1]}
                     Volume: {df_indicadores['volume'].iloc[-1]}
 
                     Apresentou os seguintes indicadores:
@@ -226,30 +226,14 @@ async def calcular_tamanho_operacoes(df_sinais, limiar_compra, limiar_venda):
                         float(min_amount)  # Garantindo que min_amount seja um float
                         print(f"Regras de mercado para {symbol}: Custo mínimo: {min_cost}, Quantidade mínima: {min_amount}")
 
-                        # quantidade_calculada = margem_usd / preco_final
-                        # valor_total = quantidade_calculada * preco_final
-                        
-                        # # Verificações antes de continuar
-                        # if quantidade_calculada < min_amount:
-                        #     print(f"Quantidade {quantidade_calculada:.8f} menor que mínimo permitido ({min_amount}) para {symbol}. Pulando.")
-                        #     acao = "MARGEM_INSUFICIENTE"
-                        #     quantidade_formatada = None
-
-                        # elif valor_total < min_cost:
-                        #     print(f"Valor da ordem ${valor_total:.2f} menor que custo mínimo (${min_cost}) para {symbol}. Pulando.")
-                        #     acao = "MARGEM_INSUFICIENTE"
-                        #     quantidade_formatada = None
-
-                        # else:
-                        #     quantidade_formatada = handler.client.amount_to_precision(symbol, quantidade_calculada)
                         capital = 0
 
                         if min_cost < 5:
                             capital = 7
                         elif min_cost < 10:
-                            capital = 15
+                            capital = 150
                         elif min_cost > 15:
-                            capital = 20
+                            capital = 200
                         
                         if capital > 0:
                             dado = await handler.get_price(symbol)

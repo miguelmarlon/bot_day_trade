@@ -18,9 +18,9 @@ def calculate_period_pivot_points(df: pd.DataFrame):
         # Pega os dados do último período (última linha)
         last_period_data = df.iloc[-1]
         
-        high_anterior = last_period_data['max']
-        low_anterior = last_period_data['min']
-        close_anterior = last_period_data['fechamento']
+        high_anterior = last_period_data['high']
+        low_anterior = last_period_data['low']
+        close_anterior = last_period_data['close']
 
         # Calcula o Ponto Pivô Central
         pp = (high_anterior + low_anterior + close_anterior) / 3
@@ -50,7 +50,7 @@ def calculate_period_pivot_points(df: pd.DataFrame):
 def calculate_bollinger_bands(data: pd.DataFrame, length=20, std=2)-> pd.DataFrame:
     """Calcula as Bandas de Bollingers."""
 
-    bollinger_bands = ta.bbands(data['fechamento'], length=length, std=std)
+    bollinger_bands = ta.bbands(data['close'], length=length, std=std)
     bollinger_bands = bollinger_bands.iloc[:,[0,1,2]]
     bollinger_bands.columns = ['BBL', 'BBM', 'BBU']
     bollinger_bands['largura'] = (bollinger_bands['BBU'] - bollinger_bands['BBL'] / bollinger_bands['BBM'])
@@ -60,30 +60,30 @@ def calculate_bollinger_bands(data: pd.DataFrame, length=20, std=2)-> pd.DataFra
     return data
 
 def calcular_indicadores(df_candles):
-    rsi = RSIIndicator(df_candles['fechamento'], window=14)
+    rsi = RSIIndicator(df_candles['close'], window=14)
     df_candles['RSI'] = rsi.rsi()
 
-    macd = df_candles.ta.macd(close='fechamento', fast=12, slow=26, signal=9, append=True)
+    macd = df_candles.ta.macd(close='close', fast=12, slow=26, signal=9, append=True)
     
-    df_candles['EMA_20'] = ta.ema(df_candles['fechamento'], length=20)
+    df_candles['EMA_20'] = ta.ema(df_candles['close'], length=20)
     
-    df_candles['EMA_50'] = ta.ema(df_candles['fechamento'], length=50)
+    df_candles['EMA_50'] = ta.ema(df_candles['close'], length=50)
     
-    df_candles['EMA_200'] = ta.ema(df_candles['fechamento'], length=200)
+    df_candles['EMA_200'] = ta.ema(df_candles['close'], length=200)
     
-    df_candles['SMA_50'] = ta.sma(df_candles['fechamento'], length=50)
+    df_candles['SMA_50'] = ta.sma(df_candles['close'], length=50)
 
-    df_candles['SMA_200'] = ta.sma(df_candles['fechamento'], length=200)
+    df_candles['SMA_200'] = ta.sma(df_candles['close'], length=200)
     
-    df_candles['ATR'] = ta.atr(df_candles['max'], df_candles['min'], df_candles['fechamento'], length=14)
+    df_candles['ATR'] = ta.atr(df_candles['high'], df_candles['low'], df_candles['close'], length=14)
     
-    df_candles['CCI'] = ta.cci(df_candles['max'], df_candles['min'], df_candles['fechamento'], length=20)
+    df_candles['CCI'] = ta.cci(df_candles['high'], df_candles['low'], df_candles['close'], length=20)
     
-    df_candles['WILLIAMS_R'] = ta.willr(df_candles['max'], df_candles['min'], df_candles['fechamento'], length=14)
+    df_candles['WILLIAMS_R'] = ta.willr(df_candles['high'], df_candles['low'], df_candles['close'], length=14)
     
-    df_candles['Momentum'] = ta.mom(df_candles['fechamento'], length=10)
+    df_candles['Momentum'] = ta.mom(df_candles['close'], length=10)
     
-    df_candles.ta.stoch(high=df_candles['max'], low=df_candles['min'], close=df_candles['fechamento'], append=True)
+    df_candles.ta.stoch(high=df_candles['high'], low=df_candles['low'], close=df_candles['close'], append=True)
     # df_candles = pd.concat([df_candles, stoch])
     #print(df_candles)
 
@@ -91,7 +91,7 @@ def calcular_indicadores(df_candles):
     for col in pivot_levels_df.columns:
         df_candles[col] = pivot_levels_df[col].iloc[0]
     
-    df_candles.ta.mfi(high=df_candles['max'], low=df_candles['min'], close=df_candles['fechamento'], volume=df_candles['volume'], append=True)
+    df_candles.ta.mfi(high=df_candles['high'], low=df_candles['low'], close=df_candles['close'], volume=df_candles['volume'], append=True)
 
     df_candles = calculate_bollinger_bands(df_candles)
 
@@ -103,14 +103,14 @@ def calcular_indicadores(df_candles):
 
 def verificar_long(df_candles):
     """Verifica as condições para abrir uma posição LONG"""
-    if df_candles.iloc[-1]['RSI'] > 40 and df_candles.iloc[-1]['RSI'] < 75 and df_candles.iloc[-1]['EMA_20'] >= df_candles.iloc[-1]['fechamento']:
+    if df_candles.iloc[-1]['RSI'] > 40 and df_candles.iloc[-1]['RSI'] < 75 and df_candles.iloc[-1]['EMA_20'] >= df_candles.iloc[-1]['close']:
         if df_candles.iloc[-1]['MACD_12_26_9'] >= df_candles.iloc[-1]['MACDs_12_26_9'] and df_candles.iloc[-2]['MACD_12_26_9'] <= df_candles.iloc[-2]['MACDs_12_26_9']:
             return True   
     return False
         
 def verificar_short(df_candles):
     """Verifica as condições para abrir uma posição SHORT"""
-    if df_candles.iloc[-1]['RSI'] < 60 and df_candles.iloc[-1]['RSI'] > 30 and df_candles.iloc[-1]['EMA_20'] <= df_candles.iloc[-1]['fechamento']:
+    if df_candles.iloc[-1]['RSI'] < 60 and df_candles.iloc[-1]['RSI'] > 30 and df_candles.iloc[-1]['EMA_20'] <= df_candles.iloc[-1]['close']:
         if df_candles.iloc[-1]['MACD_12_26_9'] <= df_candles.iloc[-1]['MACDs_12_26_9'] and df_candles.iloc[-2]['MACD_12_26_9'] >= df_candles.iloc[-2]['MACDs_12_26_9']:
             return True   
     return False

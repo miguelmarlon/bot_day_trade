@@ -63,7 +63,7 @@ class BinanceHandler:
         """
 
         bars = await self.client.fetch_ohlcv(symbol=symbol, timeframe=timeframe, limit=limit)
-        df_candles = pd.DataFrame(bars, columns=['time', 'abertura', 'max', 'min', 'fechamento', 'volume'])
+        df_candles = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
         df_candles['time'] = pd.to_datetime(df_candles['time'], unit='ms', utc=True).map(lambda x: x.tz_convert('America/Sao_Paulo'))
         return df_candles
 
