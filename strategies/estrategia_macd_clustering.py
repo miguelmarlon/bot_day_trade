@@ -128,7 +128,7 @@ async def estrategia_macd_clustering(binance, context):
                         text=f"⚠️ Erro ao calcular SuperTrendAI para {symbol}: {e}"
                     )
                     print(f"Erro no clustering de {symbol}: {e}")
-                    continue  # Pula esse ativo e segue para o próximo
+                    continue
 
     except Exception as e:
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Erro na estratégia MACD Clustering: {e}")

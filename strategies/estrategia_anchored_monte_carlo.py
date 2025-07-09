@@ -8,191 +8,188 @@ import time
 import pandas_ta as ta
 import asyncio
 from scripts.backtest import calcular_retorno_sinais
-from scripts.technical_analysis import calcular_indicadores
-from scripts.prediction_model import treina_modelo, predict
+import pandas_ta as ta
+from scripts.gerenciamento_risco_assin import GerenciamentoRiscoAsync
 
 async def estrategia_anchored_monte_carlo(binance,
-                                          symbol, 
+                                          symbol,
+                                          context,
                                           timeframe='15min', 
                                           lookback_bars = 60,
                                           simulation_count = 500, 
                                           forecast_horizon = 30, 
-                                          randomize_direction = True,
-                                          csv = False): # Este parâmetro será utilizado
+                                          randomize_direction = True
+                                          ): # Este parâmetro será utilizado
     try:
-        model = None
-        scaler = None
+        chat_id = context.job.chat_id if hasattr(context, 'job') else context._chat_id
 
-        if csv == True:
-            # Primeiro, conta o número total de linhas (inclui o cabeçalho)
-            with open(f'./outputs/btc_{timeframe}.csv') as f:
-                total_linhas = sum(1 for _ in f)
+        timeframe = context.chat_data.get('timeframe_operacao_macd', '4h')
+        take_profit = 0.04
 
-            # Calcula quantas linhas pular (menos o cabeçalho)
-            linhas_a_pular = total_linhas - 200000
-            if linhas_a_pular <= 0:
-                linhas_a_pular = 0
+        df_config = pd.read_csv('config/cripto_tamanho_macd.csv') 
+        df_config.dropna(inplace=True)
 
-            data = pd.read_csv(f'./outputs/btc_{timeframe}.csv', skiprows=range(1, linhas_a_pular))
+        gerenciador_risco = GerenciamentoRiscoAsync(binance_handler=binance)
+
+        for _, row in df_config.iterrows():
+            symbol = row['symbol']
+            await asyncio.sleep(2) 
+            posicao = row['tamanho']
+            operacao = row['acao']
+            posicao_max = posicao
             
-            data.rename(columns={
-                            'Timestamp': 'timestamp',
-                            'Open': 'open',
-                            'High': 'high',
-                            'Low': 'low',
-                            'Close': 'close',
-                            'Volume': 'volume'
-                        }, inplace=True)
-            print(data.head())
-        else:
-            # --- 1. Coleta e Preparação de Dados ---
-            # Define o limite para a coleta de dados e calcula o 'since'
+            binance.client.set_leverage(10, symbol)
+            binance.client.set_margin_mode("ISOLATED", symbol)
+            await context.bot.send_message(chat_id=chat_id, text=f"🔍 Analisando {symbol}...")
+
+            # Coleta de candles
             limit = 1500
             timeframe_in_ms = binance.client.parse_timeframe(timeframe) * 1000
-            now = int(time.time() * 1000)  # timestamp atual em milissegundos
+            now = int(time.time() * 1000)
 
-            # Ajusta 'since' para garantir dados suficientes para o backtest completo
-            required_bars = lookback_bars + forecast_horizon + 100 # Margem extra
+            required_bars = lookback_bars + forecast_horizon + 100 
             since = now - (required_bars * timeframe_in_ms)
 
             print(f"Coletando dados para {symbol} no timeframe {timeframe} desde {pd.to_datetime(since, unit='ms')}...")
             bars = await binance.client.fetch_ohlcv(symbol=symbol, since=since, timeframe=timeframe, limit=limit)
             data = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
 
-        # Verifica se há dados suficientes
-        if len(data) < lookback_bars + forecast_horizon:
-            print(f"Erro: Não há dados suficientes para realizar o backtest. "
-                  f"Dados coletados: {len(data)}, Mínimo necessário: {lookback_bars + forecast_horizon}")
-                  
-            return pd.DataFrame()
-
-        # Calcula o RSI uma única vez para todo o DataFrame
-        # data['RSI'] = ta.rsi(data['close'], length=14)
-        
-        data = calcular_indicadores(data)
-
-        train_size = int(len(data) * 0.2) 
-        train_data = data.iloc[:train_size].copy()
-        backtest_data = data.iloc[train_size:].copy()
-
-        if len(backtest_data) < forecast_horizon + lookback_bars:
-            print("Erro: Dados de backtest insuficientes após a divisão para treinamento. Aumente o limite de dados ou ajuste o train_size.")
-            return pd.DataFrame()
-        
-        if model is None or scaler is None:
-            print("Treinando o modelo de predição com os dados iniciais...")
-            model, scaler = treina_modelo(train_data)
-
-        # Inicializa colunas para armazenar os resultados do backtest
-        backtest_data['upper_band_proj'] = np.nan
-        backtest_data['lower_band_proj'] = np.nan
-        backtest_data['sinal'] = np.nan
-        
-        if model is None or scaler is None:
-            print("Treinando o modelo de predição com os dados iniciais...")
-            model, scaler = treina_modelo(train_data)
-
-        for i in range(lookback_bars, len(backtest_data) - forecast_horizon):
-            # A "ancoragem" aqui se torna dinâmica, pegando a janela de dados
-            # que precede a barra 'i' (o preço atual).
-            # historical_data_for_changes é a janela de lookback
-            janela_lookback = backtest_data['close'].iloc[i - lookback_bars : i] 
-            current_price = backtest_data['close'].iloc[i] # O preço a partir do qual a simulação começa
-
-            # Calcular as mudanças percentuais (retornos) dentro desta janela histórica
-            historical_changes = janela_lookback.pct_change().dropna().values
-
-            if len(historical_changes) == 0:
-                print(f"Aviso: Não há mudanças históricas suficientes na barra {i} para gerar mudanças. Pulando esta iteração.")
-                continue
-            
-            simulated_paths = np.zeros((forecast_horizon, simulation_count))
-
-            # --- Simulação Monte Carlo ---
-            for j in range(simulation_count):
-                changes_for_this_simulation = historical_changes.copy()
-                
-                # Aplica a randomização de direção se o parâmetro for True
-                if randomize_direction:
-                    # Inverte a direção de cada 2º, 4º, etc., mudança
-                    changes_for_this_simulation[1::2] *= -1 
-                
-                # Embaralhar a ordem das mudanças de preço
-                np.random.shuffle(changes_for_this_simulation)
-
-                # Projetar os preços futuros para este caminho de simulação
-                path = np.zeros(forecast_horizon)
-                if len(changes_for_this_simulation) > 0:
-                    # O primeiro ponto da simulação é baseado no preço atual e na primeira mudança aleatória
-                    path[0] = current_price * (1 + changes_for_this_simulation[0])
+            try:
+                trades = await binance.client.fetch_trades (symbol)
+                if not trades:
+                    print(f"[AVISO] Nenhum trade recente encontrado para {symbol}")
+                    price = None
                 else:
-                    # Se não houver mudanças, o preço se mantém
-                    path[0] = current_price
-
-                for t in range(1, forecast_horizon):
-                    # Aplica as mudanças ciclicamente
-                    change = changes_for_this_simulation[t % len(changes_for_this_simulation)] if len(changes_for_this_simulation) > 0 else 0
-                    path[t] = path[t-1] * (1 + change)
-
-                simulated_paths[:, j] = path
-
-            # --- Cálculo das Bandas de Projeção e Sinal ---
-            # As bandas são calculadas a partir da distribuição dos preços projetados no final do forecast_horizon
-            final_prices_at_horizon = simulated_paths[forecast_horizon - 1, :] 
+                    last_trade = trades[-1]
+                    if 'price' not in last_trade or last_trade['price'] is None:
+                        print(f"[AVISO] Último trade de {symbol} não possui preço válido.")
+                        price = None
+                    else:
+                        price_raw = last_trade['price']
+                        price_str = binance.client.price_to_precision(symbol, price_raw)
+                        price = float(price_str)
+            except Exception as e:
+                print(f"[ERRO] Falha ao obter ou formatar o preço para {symbol}: {e}")
+                context.bot.send_message(
+                                chat_id=chat_id,
+                                text=f"⚠️ [ERRO] Falha ao obter ou formatar o preço para {symbol}: {e}"
+                            )
+                price = None
             
-            avg_final_price = np.mean(final_prices_at_horizon)
-            std_final_price = np.std(final_prices_at_horizon)
-            
-            # Bandas de projeção
-            upper_band_proj = avg_final_price + std_final_price # Média + 1 desvio padrão
-            lower_band_proj = avg_final_price - std_final_price # Média - 1 desvio padrão
+            side, _, _, is_open, _, _, _ = await gerenciador_risco.posicoes_abertas(symbol)
+            tem_ordem_aberta = await gerenciador_risco.ultima_ordem_aberta(symbol)
 
-            # Obtenha o RSI atual para a barra 'i'
-            rsi_atual = backtest_data['RSI'].iloc[i]
-            
-            data_para_predicao = backtest_data.iloc[[i]].copy()
+            if not await gerenciador_risco.posicao_max(symbol, posicao_max) and not tem_ordem_aberta:
 
-            sinal = 0 # 0 para neutro
-            # Sinal de compra: preço atual abaixo da banda inferior projetada E RSI em zona de sobrevenda
-            if current_price < lower_band_proj and 30 <= rsi_atual <= 42:
-                preco_predito = predict(data_para_predicao, model=model, scaler=scaler)
-                if preco_predito - current_price > 0:
-                    sinal = 1 
-            # Sinal de venda: preço atual acima da banda superior projetada E RSI em zona de sobrecompra
-            elif current_price > upper_band_proj and 58 <= rsi_atual <= 70:
-                preco_predito = predict(data_para_predicao, model=model, scaler=scaler)
-                if preco_predito - current_price < 0:
-                    sinal = -1
+                if len(data) < lookback_bars + forecast_horizon:
+                    print(f"Erro: Não há dados suficientes para realizar o backtest. "
+                        f"Dados coletados: {len(data)}, Mínimo necessário: {lookback_bars + forecast_horizon}")
+                        
+                    return pd.DataFrame()
 
-            # --- 3. Armazenamento dos Resultados ---
-            # Salva os resultados nas colunas correspondentes do DataFrame para a barra 'i'
-            backtest_data.loc[backtest_data.index[i], 'upper_band_proj'] = upper_band_proj
-            backtest_data.loc[backtest_data.index[i], 'lower_band_proj'] = lower_band_proj
-            backtest_data.loc[backtest_data.index[i], 'sinal'] = sinal
-            
-            # Opcional: imprimir o progresso
-            if i % 100 == 0:
-                print(f"Processando barra {i}/{len(backtest_data) - forecast_horizon - 1}...")
+                data['RSI'] = ta.rsi(data['close'], length=14)
+                
+                if len(data) < forecast_horizon + lookback_bars:
+                    print("Erro: Dados insuficientes para realizar a operação Anchored Monte Carlo.")
+                    return pd.DataFrame()
 
-        return backtest_data
+                data['upper_band_proj'] = np.nan
+                data['lower_band_proj'] = np.nan
+                # data['sinal'] = np.nan
+
+                for i in range(lookback_bars, len(data) - forecast_horizon):
+
+                    janela_lookback = data['close'].iloc[i - lookback_bars : i] 
+                    current_price = data['close'].iloc[i] 
+
+                    historical_changes = janela_lookback.pct_change().dropna().values
+
+                    if len(historical_changes) == 0:
+                        print(f"Aviso: Não há mudanças históricas suficientes na barra {i} para gerar mudanças. Pulando esta iteração.")
+                        continue
+                    
+                    simulated_paths = np.zeros((forecast_horizon, simulation_count))
+                    
+                    for j in range(simulation_count):
+                        changes_for_this_simulation = historical_changes.copy()
+
+                        if randomize_direction:
+                    
+                            changes_for_this_simulation[1::2] *= -1 
+                        
+                        np.random.shuffle(changes_for_this_simulation)
+
+                        path = np.zeros(forecast_horizon)
+                        if len(changes_for_this_simulation) > 0:
+
+                            path[0] = current_price * (1 + changes_for_this_simulation[0])
+                        else:
+                            
+                            path[0] = current_price
+
+                        for t in range(1, forecast_horizon):
+                            
+                            change = changes_for_this_simulation[t % len(changes_for_this_simulation)] if len(changes_for_this_simulation) > 0 else 0
+                            path[t] = path[t-1] * (1 + change)
+
+                        simulated_paths[:, j] = path
+
+                    final_prices_at_horizon = simulated_paths[forecast_horizon - 1, :] 
+                    
+                    avg_final_price = np.mean(final_prices_at_horizon)
+                    std_final_price = np.std(final_prices_at_horizon)
+
+                    upper_band_proj = avg_final_price + std_final_price 
+                    lower_band_proj = avg_final_price - std_final_price 
+
+                    rsi_atual = data['RSI'].iloc[i]
+                    low_price = data['low'].iloc[-1]
+                    high_price = data['high'].iloc[-1]
+
+                    # sinal = 0 
+
+                    if low_price < lower_band_proj and 25 <= rsi_atual <= 50:
+                        if side != 'short' and current_price < lower_band_proj:
+                        
+                            print(f"📈 Sinal de COMPRA detectado em {symbol} na barra {i} (RSI: {rsi_atual}, Preço: {current_price})")
+                            await context.bot.send_message(chat_id=chat_id, text=f"📈 Sinal de COMPRA detectado em {symbol} (Preço: {current_price})")
+                            await binance.abrir_long(symbol, posicao_max, context)
+
+                    elif high_price > upper_band_proj and 50 <= rsi_atual <= 75:
+                        if side != 'long' and current_price > upper_band_proj:
+                        
+                            print(f"📉 Sinal de VENDA detectado em {symbol} na barra {i} (RSI: {rsi_atual}, Preço: {current_price})")
+                            await context.bot.send_message(chat_id=chat_id, text=f"📉 Sinal de VENDA detectado em {symbol} (Preço: {current_price})")
+                            await binance.abrir_short(symbol, posicao_max, context)
+
+                    # data.loc[data.index[i], 'upper_band_proj'] = upper_band_proj
+                    # data.loc[data.index[i], 'lower_band_proj'] = lower_band_proj
+                    # data.loc[data.index[i], 'sinal'] = sinal
+
+                    # if i % 100 == 0:
+                    #     print(f"Processando barra {i}/{len(data) - forecast_horizon - 1}...")
+
+                return data
 
     except Exception as e:
         print(f"Erro na estratégia Anchored Monte Carlo: {e}")
-        return pd.DataFrame() # Retorna um DataFrame vazio em caso de erro
+        return pd.DataFrame() 
 
 async def main():
-    timeframe = '30min'
+    timeframes = ['1min', '5min', '15min', '30min', '60min']
     try:
         binance = await BinanceHandler.create()
-        df = await estrategia_anchored_monte_carlo(binance=binance, timeframe=timeframe, symbol='BTC/USDT', csv=True)
-        # print(df.tail(20)) 
-        df.to_csv(f'outputs/sinais_monte_carlo_{timeframe}_xgb.csv', index=False)
-        
-        if df is not None:
-            retorno = calcular_retorno_sinais(df, horizontes=[5, 10, 20, 30, 60, 120, 240])
-            retorno.to_csv(f'outputs/calculo_retorno_monte_carlo_{timeframe}_xgb.csv', index=False)
-        else:
-            print("Nenhum dado retornado da estratégia Anchored Monte Carlo.")
+        for timeframe in timeframes:
+            df = await estrategia_anchored_monte_carlo(binance=binance, timeframe=timeframe, symbol='BTC/USDT', csv=True)
+
+            df.to_csv(f'outputs/data/analise_montecarlo/conf_agressiva/sinais_monte_carlo_{timeframe}_rsi_agressivo.csv', index=False)
+
+            if df is not None:
+                retorno = calcular_retorno_sinais(df, horizontes=[5, 10, 20, 30, 60, 120, 240])
+                retorno.to_csv(f'outputs/data/analise_montecarlo/conf_conservadora/calculo_retorno_monte_carlo_{timeframe}_rsi_agressivo.csv', index=False)
+            else:
+                print("Nenhum dado retornado da estratégia Anchored Monte Carlo.")
+
     except Exception as e:
         print(f"Erro na estratégia Anchored Monte Carlo: {e}")
     finally:

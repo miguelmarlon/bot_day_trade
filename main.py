@@ -225,9 +225,9 @@ async def selecionar_moedas_handler(update: Update, context: CallbackContext):
 # FUNÇÕES DE ESTRATÉGIAS DIRETAS - NÃO IMPORT !
 async def trading_task(context):
     binance = None
+    gerenciador_risco = None
     try:
-        # ALAVANCAGEM = 10
-        # TIPO_MARGEM = 'ISOLATED'
+        
         chat_id = context.job.chat_id
         await context.bot.send_message(chat_id=chat_id, text="⏳ Executando análise de mercado...")
 
@@ -235,7 +235,7 @@ async def trading_task(context):
         gerenciador_risco = GerenciamentoRiscoAsync(binance_handler=binance)
         
         async with gerenciador_risco as gr:
-            df_config = pd.read_csv('config/cripto_tamanho_xgb.csv')  # 15 dolares com 10x
+            df_config = pd.read_csv('config/cripto_tamanho_xgb.csv')
             df_config.dropna(inplace=True)
 
             timeframe = context.chat_data.get('timeframe_operacao', '1h')
@@ -244,12 +244,17 @@ async def trading_task(context):
                 symbol = row['symbol']
                 posicao_max = row['tamanho']
                 tipo_operacao = row['acao']
-                #print(f"Analisando {symbol}, tamanho {posicao_max} no timeframe {timeframe}...")
-
-                # await binance.client.set_leverage(ALAVANCAGEM, symbol)
-                # await binance.client.set_margin_mode(TIPO_MARGEM, symbol)
                 
-                await gr.fecha_pnl(symbol, loss=-25, target=50)
+                # await gr.fecha_pnl(symbol, loss=-25, target=50)
+
+                await gr.fecha_pnl(
+                        symbol=symbol, 
+                        loss=-0.25,
+                        target= 1.0, 
+                        trailing_activation_percentage=0.02, 
+                        trailing_distance_percentage=0.05,
+                        context=context 
+                    )
                 await binance.cancelar_todas_as_ordens(symbol, context)
 
                 df = await binance.obter_dados_candles(symbol=symbol, timeframe=timeframe)
@@ -276,25 +281,25 @@ async def trading_task(context):
                             await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol} (LONG)...")
                             model, scaler = treina_modelo(df)
                             preco_futuro = predict(df, model=model, scaler=scaler)
-                            # await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol} (LONG)...")
-                            await context.bot.send_message(chat_id=chat_id, text=f"💰 Preço futuro previsto para {symbol}: {preco_futuro}")
+                            await context.bot.send_message(chat_id=chat_id, text=f"💰 Valor previsto para {symbol}: {preco_futuro}")
+                            await context.bot.send_message(chat_id=chat_id, text=f"💰 Valor atual para {symbol}: {df['close'].iloc[-1]}")
 
                             if df['close'].iloc[-1] <= preco_futuro:
                                 await binance.abrir_long(symbol, posicao_max, context)
                             else:
-                                await context.bot.send_message(chat_id=chat_id, text=f"❌Não foi possível abrir posição: a predição da IA e de QUEDA.")
+                                await context.bot.send_message(chat_id=chat_id, text=f"❌Não foi possível abrir posição: a predição da IA é de QUEDA.")
 
                         elif side != 'long' and tipo_operacao == 'SHORT' and verificar_short(df):
                             await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol} (SHORT)...")
                             model, scaler = treina_modelo(df)
                             preco_futuro = predict(df, model=model, scaler=scaler)
-                            await context.bot.send_message(chat_id=chat_id, text=f"💰 Preço futuro previsto para {symbol}: {preco_futuro}")
-                            #await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol} (SHORT)...")
-
+                            await context.bot.send_message(chat_id=chat_id, text=f"💰 Valor previsto para {symbol}: {preco_futuro}")
+                            await context.bot.send_message(chat_id=chat_id, text=f"💰 Valor atual para {symbol}: {df['close'].iloc[-1]}")
+                            
                             if df['close'].iloc[-1] >= preco_futuro:
                                 await binance.abrir_short(symbol, posicao_max, context)
                             else:
-                                await context.bot.send_message(chat_id=chat_id, text=f"❌Não foi possível abrir posição: a predição da IA e de ALTA.")
+                                await context.bot.send_message(chat_id=chat_id, text=f"❌Não foi possível abrir posição: a predição da IA é de ALTA.")
 
     except Exception as e:
         logger.error(f"Erro no trading task: {e}")
@@ -319,7 +324,14 @@ async def trading_task_btc_1m(context):
             timeframe = context.chat_data.get('timeframe_operacao_simples', '1m')
             #binance = await BinanceHandler.create()
             
-            await gr.fecha_pnl(symbol, loss=-25, target=50, context=context)
+            await gr.fecha_pnl(
+                        symbol=symbol, 
+                        loss=-0.25,
+                        target=1.0, 
+                        trailing_activation_percentage=0.02, 
+                        trailing_distance_percentage=0.05,
+                        context=context 
+                    )
 
             # Verificar posição
             side, amount, _, is_open, _, _, _ = await gr.posicoes_abertas(symbol)
