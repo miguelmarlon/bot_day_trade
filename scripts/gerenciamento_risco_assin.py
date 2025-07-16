@@ -192,103 +192,289 @@ class GerenciamentoRiscoAsync:
     #         if context:
     #             await self.enviar_mensagem(context, error_msg)
 
+    # async def fecha_pnl(self, 
+    #                     symbol: str, 
+    #                     loss: float, 
+    #                     target: float, 
+    #                     trailing_activation_percentage: Optional[float] = None,
+    #                     trailing_distance_percentage: Optional[float] = None,   
+    #                     context: Optional[CallbackContext] = None) -> None:
+    #     """
+    #     Gerencia stop loss e take profit de forma assíncrona com Trailing Stop Dinâmico.
+    #     """
+        
+    #     if symbol not in self._highest_profit_reached:
+    #         self._highest_profit_reached[symbol] = -float('inf')
+    #         self._is_trailing_active[symbol] = False 
+
+    #     current_loss_threshold = loss
+        
+    #     try:
+    #         _, _, _, _, _, percentage, pnl = await self.posicoes_abertas(symbol)
+            
+    #         if percentage is not None:
+    #             pnl_formatted = f"{float(pnl):.2f}"
+                
+    #             if trailing_activation_percentage is not None and trailing_distance_percentage is not None:
+                    
+                    
+    #                 if percentage > self._highest_profit_reached[symbol]:
+    #                     self._highest_profit_reached[symbol] = percentage
+                        
+    #                     self._save_trailing_data()
+    #                     # Opcional: notificar sobre um novo pico se o trailing já estiver ativo
+    #                     if self._is_trailing_active[symbol]:
+    #                         print(f"Novo pico para {symbol}: {self._highest_profit_reached[symbol]:.2%}")
+
+    #                 if self._highest_profit_reached[symbol] >= trailing_activation_percentage:
+                        
+    #                     if not self._is_trailing_active[symbol]:
+    #                         self._is_trailing_active[symbol] = True
+    #                         self._save_trailing_data() 
+    #                         print(f"Trailing Stop ATIVADO para {symbol} em {self._highest_profit_reached[symbol]:.2%}")
+    #                         if context:
+    #                             await self.enviar_mensagem(context, 
+    #                                 f"Trailing Stop ATIVADO para {symbol}! Lucro de {self._highest_profit_reached[symbol]:.2%}.")
+
+    #                     calculated_trailing_sl = self._highest_profit_reached[symbol] - trailing_distance_percentage
+                        
+    #                     current_loss_threshold = max(current_loss_threshold, calculated_trailing_sl)
+
+    #                     if not math.isclose(current_loss_threshold, loss) and \
+    #                        (self._highest_profit_reached[symbol] >= trailing_activation_percentage and \
+    #                         (calculated_trailing_sl > loss or self._is_trailing_active[symbol])):
+    #                         print(f"Trailing Ajustado para {symbol}: "
+    #                               f"Pico de Lucro: {self._highest_profit_reached[symbol]:.2%}, "
+    #                               f"Distância: {trailing_distance_percentage:.2%}. "
+    #                               f"SL Calculado: {calculated_trailing_sl:.2%}. "
+    #                               f"SL Atual: {current_loss_threshold:.2%}.")
+    #                 else:
+    #                     print(f"Trailing para {symbol} não ativado. Lucro atual: {percentage:.2%}, "
+    #                           f"Pico: {self._highest_profit_reached[symbol]:.2%}. "
+    #                           f"Aguardando {trailing_activation_percentage:.2%} para ativar.")
+    #             else:
+    #                 print(f"Trailing Stop Dinâmico não configurado para {symbol}. Usando Stop Loss Fixo: {current_loss_threshold:.2%}.")
+
+    #             if percentage <= current_loss_threshold:
+    #                 print(f'Encerrando posição por LOSS! PNL: {pnl_formatted} USD (Limite: {current_loss_threshold:.2%})')
+    #                 await self.encerra_posicao(symbol, context)
+    #                 msg = f'LOSS de {pnl_formatted} USD (atingiu {current_loss_threshold:.2%}) em {symbol}'
+    #                 if context:
+    #                     await self.enviar_mensagem(context, msg)
+                    
+    #             elif percentage >= target:
+    #                 print(f'Encerrando posição por GAIN! PNL: {pnl_formatted} USD (Alvo: {target:.2%})')
+    #                 await self.encerra_posicao(symbol, context)
+    #                 msg = f'GAIN de {pnl_formatted} USD (atingiu {target:.2%}) em {symbol}'
+    #                 if context:
+    #                     await self.enviar_mensagem(context, msg)
+    #             else:
+    #                 print(f"Posição {symbol} em aberto: PNL atual {percentage:.2%}. "
+    #                       f"Stop Loss em {current_loss_threshold:.2%}, Target em {target:.2%}.")
+
+    #         else:
+    #             print(f"Não foi possível obter o percentual de PNL para {symbol}. Posição pode não estar aberta ou dados inválidos.")
+
+    #     except Exception as e:
+    #         error_msg = f'Erro no gerenciamento de PNL para {symbol}: {str(e)}'
+    #         print(error_msg)
+    #         if context:
+    #             await self.enviar_mensagem(context, error_msg)
+
+    # async def fecha_pnl(self, 
+    #                 symbol: str, 
+    #                 loss: float, 
+    #                 target: float, 
+    #                 trailing_activation_percentage: Optional[float] = None,
+    #                 trailing_distance_percentage: Optional[float] = None,   
+    #                 context: Optional[CallbackContext] = None) -> None:
+    #     """
+    #     Gerencia stop loss e take profit de forma assíncrona com Trailing Stop Dinâmico.
+    #     """
+
+    #     # Inicializa os dados do trailing se ainda não estiverem prontos
+    #     if symbol not in self._highest_profit_reached:
+    #         self._highest_profit_reached[symbol] = -float('inf')
+    #         self._is_trailing_active[symbol] = False
+
+    #     try:
+    #         # Obtém os dados da posição atual
+    #         side, amount, entry_price, is_open, entry_time, percentage, pnl = await self.posicoes_abertas(symbol)
+
+    #         if percentage is None:
+    #             print(f"[{symbol}] Posição aparentemente não está aberta ou dados inválidos.")
+    #             return
+
+    #         pnl_formatted = f"{float(pnl):.2f}"
+    #         highest = self._highest_profit_reached[symbol]
+    #         trailing_ativo = self._is_trailing_active[symbol]
+
+    #         # Atualiza o maior lucro já atingido
+    #         if percentage > highest:
+    #             self._highest_profit_reached[symbol] = percentage
+    #             self._save_trailing_data()
+    #             if trailing_ativo:
+    #                 print(f"[{symbol}] Novo pico de lucro: {percentage:.2%}")
+
+    #         # Decide se trailing será ativado
+    #         if trailing_activation_percentage is not None and trailing_distance_percentage is not None:
+    #             if percentage >= trailing_activation_percentage:
+    #                 if not trailing_ativo:
+    #                     self._is_trailing_active[symbol] = True
+    #                     self._save_trailing_data()
+    #                     print(f"[{symbol}] ✅ Trailing Stop ativado! Lucro = {percentage:.2%}")
+    #                     if context:
+    #                         await self.enviar_mensagem(context, f"Trailing Stop ativado para {symbol} com lucro de {percentage:.2%}")
+
+    #                 # Calcula o trailing stop com base no pico de lucro
+    #                 calculated_trailing_sl = self._highest_profit_reached[symbol] - trailing_distance_percentage
+
+    #                 # Trailing só é usado se estiver abaixo do lucro atual
+    #                 if calculated_trailing_sl < percentage:
+    #                     current_loss_threshold = calculated_trailing_sl
+    #                 else:
+    #                     current_loss_threshold = loss
+    #             else:
+    #                 current_loss_threshold = loss
+    #         else:
+    #             current_loss_threshold = loss
+
+    #         # Evita que o "stop" fique maior que 0 (o que não é stop loss, mas lucro)
+    #         if current_loss_threshold > 0:
+    #             print(f"[{symbol}] ⚠️ Stop Loss ajustado manualmente para 0 pois valor calculado foi positivo ({current_loss_threshold:.2%})")
+    #             current_loss_threshold = 0
+
+    #         print(f"[{symbol}] 📊 PNL: {percentage:.2%} | Stop: {current_loss_threshold:.2%} | Target: {target:.2%}")
+
+    #         # Lógica de encerramento por LOSS
+    #         if percentage <= current_loss_threshold:
+    #             print(f"[{symbol}] 🚨 Encerrando por LOSS. PNL: {pnl_formatted} USD")
+    #             await self.encerra_posicao(symbol, context)
+    #             msg = f"❌ LOSS de {pnl_formatted} USD (atingiu {percentage:.2%}) em {symbol}"
+    #             if context:
+    #                 await self.enviar_mensagem(context, msg)
+
+    #         # Lógica de encerramento por GAIN
+    #         elif percentage >= target:
+    #             print(f"[{symbol}] ✅ Encerrando por GAIN. PNL: {pnl_formatted} USD")
+    #             await self.encerra_posicao(symbol, context)
+    #             msg = f"✅ GAIN de {pnl_formatted} USD (atingiu {percentage:.2%}) em {symbol}"
+    #             if context:
+    #                 await self.enviar_mensagem(context, msg)
+
+    #         else:
+    #             print(f"[{symbol}] ⏳ Posição em aberto. PNL atual: {percentage:.2%}")
+
+    #     except Exception as e:
+    #         error_msg = f"Erro no gerenciamento de PNL para {symbol}: {str(e)}"
+    #         print(error_msg)
+    #         if context:
+    #             await self.enviar_mensagem(context, error_msg)
+
     async def fecha_pnl(self, 
                         symbol: str, 
                         loss: float, 
                         target: float, 
-                        trailing_activation_percentage: Optional[float] = None,
-                        trailing_distance_percentage: Optional[float] = None,   
                         context: Optional[CallbackContext] = None) -> None:
         """
-        Gerencia stop loss e take profit de forma assíncrona com Trailing Stop Loss Dinâmico.
-        
-        Args:
-            symbol (str): O símbolo do ativo (ex: 'BTCUSDT').
-            loss (float): O percentual de perda máxima aceitável (ex: -0.02 para -2%).
-            target (float): O percentual de lucro alvo (ex: 0.10 para 10%).
-            trailing_activation_percentage (float, optional): O percentual de lucro que, ao ser atingido, 
-                ativa o trailing stop loss dinâmico. Se None, o trailing não é usado.
-            trailing_distance_percentage (float, optional): A distância percentual do trailing stop loss 
-                abaixo do maior lucro atingido. Deve ser um valor positivo. Se None, o trailing não é usado.
-            context (CallbackContext, optional): Contexto do bot para envio de mensagens.
+        Gerencia stop loss e take profit de forma assíncrona com Trailing Stop por pontos fixos.
         """
-        
-        # Inicializa o highest_profit_percentage para o símbolo se não existir no dicionário,
-        # ou se for a primeira vez que está sendo monitorado nesta sessão
+        fixed_trailing_stops = {
+            0.10: 0.05,  # 10% de lucro -> trailing stop em 5%
+            0.20: 0.15,  # 20% de lucro -> trailing stop em 15%
+            0.30: 0.25,  # 30% de lucro -> trailing stop em 25%
+            0.40: 0.35,  # 40% de lucro -> trailing stop em 35%
+            0.50: 0.45,  # 50% de lucro -> trailing stop em 45%
+            0.60: 0.55,  # 60% de lucro -> trailing stop em 55%
+            0.70: 0.65,  # 70% de lucro -> trailing stop em 65%
+            0.80: 0.75,  # 80% de lucro -> trailing stop em 75%
+            0.90: 0.85,  # 90% de lucro -> trailing stop em 85%
+            1.00: 0.90,  # 100% de lucro (seu stop gain) -> trailing stop em 90%
+            1.10: 1.00,  # 110% de lucro -> trailing stop em 100%
+            1.20: 1.10,  # 120% de lucro -> trailing stop em 110%
+            1.30: 1.20,  # 130% de lucro -> trailing stop em 120%
+            1.40: 1.30,  # 140% de lucro -> trailing stop em 130%
+            1.50: 1.40,  # 150% de lucro -> trailing stop em 140%
+            1.60: 1.50,  # 160% de lucro -> trailing stop em 150%
+            1.70: 1.60,  # 170% de lucro -> trailing stop em 160%
+            1.80: 1.70,  # 180% de lucro -> trailing stop em 170%
+            1.90: 1.80,  # 190% de lucro -> trailing stop em 180%
+            2.00: 1.90   # 200% de lucro -> trailing stop em 190%
+        }
+        # Inicializa os dados do trailing se ainda não estiverem prontos
         if symbol not in self._highest_profit_reached:
             self._highest_profit_reached[symbol] = -float('inf')
-            self._is_trailing_active[symbol] = False # Inicializa como inativo
+            self._is_trailing_active[symbol] = False # Mantido para consistência, mas o uso é diferente
 
-        current_loss_threshold = loss # Começa com o stop loss fixo inicial
-        
         try:
-            _, _, _, _, _, percentage, pnl = await self.posicoes_abertas(symbol)
+            # Obtém os dados da posição atual
+            side, amount, entry_price, is_open, entry_time, percentage, pnl = await self.posicoes_abertas(symbol)
+
+            if percentage is None:
+                print(f"[{symbol}] Posição aparentemente não está aberta ou dados inválidos.")
+                return
+
+            pnl_formatted = f"{float(pnl):.2f}"
+            highest = self._highest_profit_reached[symbol]
             
-            if percentage is not None:
-                pnl_formatted = f"{float(pnl):.2f}"
+            if percentage > highest:
+                self._highest_profit_reached[symbol] = percentage
+                self._save_trailing_data()
+          
+            current_loss_threshold = loss
+
+            sorted_targets = sorted(fixed_trailing_stops.keys())
+            
+            for target_profit in sorted_targets:
+                if percentage >= target_profit:
+                    
+                    current_loss_threshold = fixed_trailing_stops[target_profit]
+                    
+                    if not self._is_trailing_active[symbol]: 
+                        self._is_trailing_active[symbol] = True
+                        print(f"[{symbol}] ✅ Trailing Stop ajustado para {current_loss_threshold:.2%} (alvo: {target_profit:.2%})")
+                        if context:
+                            await self.enviar_mensagem(context, f"Trailing Stop para {symbol} ajustado para {current_loss_threshold:.2%} ao atingir {target_profit:.2%}")
+                else:
+                    
+                    break 
+
+            
+            if current_loss_threshold > 0 and percentage < current_loss_threshold:
+                 
+                 if loss <= 0: 
+                    current_loss_threshold = max(current_loss_threshold, 0)
+                 print(f"[{symbol}] ⚠️ Stop Loss ajustado para {current_loss_threshold:.2%} se o valor calculado foi positivo.")
+
+
+            print(f"[{symbol}] 📊 PNL: {percentage:.2%} | Stop (ajustado): {current_loss_threshold:.2%} | Target (original): {target:.2%}")
+
+            # Lógica de encerramento por LOSS
+            if percentage <= current_loss_threshold:
+                print(f"[{symbol}] 🚨 Encerrando por LOSS (ou Trailing Stop atingido). PNL: {pnl_formatted} USD")
+                await self.encerra_posicao(symbol, context)
+                msg = f"❌ Saída por {('Trailing Stop' if current_loss_threshold > loss else 'LOSS')} de {pnl_formatted} USD (atingiu {percentage:.2%}, stop em {current_loss_threshold:.2%}) em {symbol}"
+                if context:
+                    await self.enviar_mensagem(context, msg)
                 
-                if trailing_activation_percentage is not None and trailing_distance_percentage is not None:
-                    
-                    
-                    if percentage > self._highest_profit_reached[symbol]:
-                        self._highest_profit_reached[symbol] = percentage
-                        
-                        self._save_trailing_data()
-                        # Opcional: notificar sobre um novo pico se o trailing já estiver ativo
-                        if self._is_trailing_active[symbol]:
-                            print(f"Novo pico para {symbol}: {self._highest_profit_reached[symbol]:.2%}")
+                del self._highest_profit_reached[symbol]
+                del self._is_trailing_active[symbol]
 
-                    if self._highest_profit_reached[symbol] >= trailing_activation_percentage:
-                        
-                        if not self._is_trailing_active[symbol]:
-                            self._is_trailing_active[symbol] = True
-                            self._save_trailing_data() 
-                            print(f"Trailing Stop ATIVADO para {symbol} em {self._highest_profit_reached[symbol]:.2%}")
-                            if context:
-                                await self.enviar_mensagem(context, 
-                                    f"Trailing Stop ATIVADO para {symbol}! Lucro de {self._highest_profit_reached[symbol]:.2%}.")
-
-                        calculated_trailing_sl = self._highest_profit_reached[symbol] - trailing_distance_percentage
-                        
-                        current_loss_threshold = max(current_loss_threshold, calculated_trailing_sl)
-
-                        if not math.isclose(current_loss_threshold, loss) and \
-                           (self._highest_profit_reached[symbol] >= trailing_activation_percentage and \
-                            (calculated_trailing_sl > loss or self._is_trailing_active[symbol])):
-                            print(f"Trailing Ajustado para {symbol}: "
-                                  f"Pico de Lucro: {self._highest_profit_reached[symbol]:.2%}, "
-                                  f"Distância: {trailing_distance_percentage:.2%}. "
-                                  f"SL Calculado: {calculated_trailing_sl:.2%}. "
-                                  f"SL Atual: {current_loss_threshold:.2%}.")
-                    else:
-                        print(f"Trailing para {symbol} não ativado. Lucro atual: {percentage:.2%}, "
-                              f"Pico: {self._highest_profit_reached[symbol]:.2%}. "
-                              f"Aguardando {trailing_activation_percentage:.2%} para ativar.")
-                else:
-                    print(f"Trailing Stop Dinâmico não configurado para {symbol}. Usando Stop Loss Fixo: {current_loss_threshold:.2%}.")
-
-                if percentage <= current_loss_threshold:
-                    print(f'Encerrando posição por LOSS! PNL: {pnl_formatted} USD (Limite: {current_loss_threshold:.2%})')
-                    await self.encerra_posicao(symbol, context)
-                    msg = f'LOSS de {pnl_formatted} USD (atingiu {current_loss_threshold:.2%}) em {symbol}'
-                    if context:
-                        await self.enviar_mensagem(context, msg)
-                    
-                elif percentage >= target:
-                    print(f'Encerrando posição por GAIN! PNL: {pnl_formatted} USD (Alvo: {target:.2%})')
-                    await self.encerra_posicao(symbol, context)
-                    msg = f'GAIN de {pnl_formatted} USD (atingiu {target:.2%}) em {symbol}'
-                    if context:
-                        await self.enviar_mensagem(context, msg)
-                else:
-                    print(f"Posição {symbol} em aberto: PNL atual {percentage:.2%}. "
-                          f"Stop Loss em {current_loss_threshold:.2%}, Target em {target:.2%}.")
+            elif percentage >= target:
+                print(f"[{symbol}] ✅ Encerrando por GAIN. PNL: {pnl_formatted} USD")
+                await self.encerra_posicao(symbol, context)
+                msg = f"✅ GAIN de {pnl_formatted} USD (atingiu {percentage:.2%}) em {symbol}"
+                if context:
+                    await self.enviar_mensagem(context, msg)
+                
+                del self._highest_profit_reached[symbol]
+                del self._is_trailing_active[symbol]
 
             else:
-                print(f"Não foi possível obter o percentual de PNL para {symbol}. Posição pode não estar aberta ou dados inválidos.")
+                print(f"[{symbol}] ⏳ Posição em aberto. PNL atual: {percentage:.2%}")
 
         except Exception as e:
-            error_msg = f'Erro no gerenciamento de PNL para {symbol}: {str(e)}'
+            error_msg = f"Erro no gerenciamento de PNL para {symbol}: {str(e)}"
             print(error_msg)
             if context:
                 await self.enviar_mensagem(context, error_msg)

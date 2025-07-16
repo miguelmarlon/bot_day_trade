@@ -244,15 +244,11 @@ async def trading_task(context):
                 symbol = row['symbol']
                 posicao_max = row['tamanho']
                 tipo_operacao = row['acao']
-                
-                # await gr.fecha_pnl(symbol, loss=-25, target=50)
 
                 await gr.fecha_pnl(
                         symbol=symbol, 
                         loss=-0.25,
-                        target= 1.0, 
-                        trailing_activation_percentage=0.02, 
-                        trailing_distance_percentage=0.05,
+                        target= 2.0, 
                         context=context 
                     )
                 await binance.cancelar_todas_as_ordens(symbol, context)
@@ -327,9 +323,7 @@ async def trading_task_btc_1m(context):
             await gr.fecha_pnl(
                         symbol=symbol, 
                         loss=-0.25,
-                        target=1.0, 
-                        trailing_activation_percentage=0.02, 
-                        trailing_distance_percentage=0.05,
+                        target=2.0, 
                         context=context 
                     )
 
