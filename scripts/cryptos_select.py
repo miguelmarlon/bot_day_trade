@@ -231,9 +231,9 @@ async def calcular_tamanho_operacoes(df_sinais, limiar_compra, limiar_venda):
                         if min_cost < 5:
                             capital = 7
                         elif min_cost < 10:
-                            capital = 150
+                            capital = 75
                         elif min_cost > 15:
-                            capital = 200
+                            capital = 100
                         
                         if capital > 0:
                             dado = await handler.get_price(symbol)

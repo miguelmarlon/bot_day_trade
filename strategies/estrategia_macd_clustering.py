@@ -80,7 +80,7 @@ async def estrategia_macd_clustering(binance, context):
                 try:
                     trend, t_stop, ama = await SuperTrendAIClusteringAsync(binance, symbol, timeframe)
 
-                    if operacao == 'LONG' and df['RSI'].iloc[-1] >= 58 and df['RSI'].iloc[-1] <= 70:
+                    if operacao == 'LONG' and df['RSI'].iloc[-1] >= 58 and df['RSI'].iloc[-1] <= 70:  
                         if df['MACD_12_26_9'].iloc[-1] >= df['MACDs_12_26_9'].iloc[-1] and df['MACD_12_26_9'].iloc[-2] <= df['MACDs_12_26_9'].iloc[-2]:
                             if trend == 1 and t_stop > ama and side != 'short':
 
@@ -101,7 +101,7 @@ async def estrategia_macd_clustering(binance, context):
 
                                 await context.bot.send_message(chat_id=chat_id, text=f"🚀 Abrindo *LONG* em {symbol}\n🎯 TP: {alvo}\n🛑 SL: {stop}")
 
-                    elif operacao == 'SHORT' and df['RSI'].iloc[-1] <= 42 and df['RSI'].iloc[-1] >= 30:
+                    elif operacao == 'SHORT' and df['RSI'].iloc[-1] <= 42 and df['RSI'].iloc[-1] >= 30: 
                         if df['MACD_12_26_9'].iloc[-1] <= df['MACDs_12_26_9'].iloc[-1] and df['MACD_12_26_9'].iloc[-2] >= df['MACDs_12_26_9'].iloc[-2]:
                             if trend == 0 and t_stop < ama and side != 'long':
 

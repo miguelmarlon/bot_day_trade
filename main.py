@@ -245,12 +245,20 @@ async def trading_task(context):
                 posicao_max = row['tamanho']
                 tipo_operacao = row['acao']
 
-                await gr.fecha_pnl(
+                # await gr.fecha_pnl(
+                #         symbol=symbol, 
+                #         loss=-0.25,
+                #         target= 2.0, 
+                #         context=context 
+                #     )
+                
+                await gr.stop_dinamico(
                         symbol=symbol, 
-                        loss=-0.25,
-                        target= 2.0, 
+                        take_profit=0.06,
+                        stop_loss=-0.02,
                         context=context 
                     )
+                
                 await binance.cancelar_todas_as_ordens(symbol, context)
 
                 df = await binance.obter_dados_candles(symbol=symbol, timeframe=timeframe)
@@ -273,7 +281,7 @@ async def trading_task(context):
                     tem_ordem_aberta = await gr.ultima_ordem_aberta(symbol)
 
                     if not tem_ordem_aberta:
-                        if side != 'short' and tipo_operacao == 'LONG' and verificar_long(df):
+                        if side != 'short' and verificar_long(df): #and tipo_operacao == 'LONG'
                             await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol} (LONG)...")
                             model, scaler = treina_modelo(df)
                             preco_futuro = predict(df, model=model, scaler=scaler)
@@ -285,7 +293,7 @@ async def trading_task(context):
                             else:
                                 await context.bot.send_message(chat_id=chat_id, text=f"❌Não foi possível abrir posição: a predição da IA é de QUEDA.")
 
-                        elif side != 'long' and tipo_operacao == 'SHORT' and verificar_short(df):
+                        elif side != 'long' and verificar_short(df): #and tipo_operacao == 'SHORT'
                             await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol} (SHORT)...")
                             model, scaler = treina_modelo(df)
                             preco_futuro = predict(df, model=model, scaler=scaler)
@@ -320,13 +328,19 @@ async def trading_task_btc_1m(context):
             timeframe = context.chat_data.get('timeframe_operacao_simples', '1m')
             #binance = await BinanceHandler.create()
             
-            await gr.fecha_pnl(
+            # await gr.fecha_pnl(
+            #             symbol=symbol, 
+            #             loss=-0.25,
+            #             target=2.0, 
+            #             context=context 
+            #         )
+            
+            await gr.stop_dinamico(
                         symbol=symbol, 
-                        loss=-0.25,
-                        target=2.0, 
+                        take_profit=0.08,
+                        stop_loss=-0.02,
                         context=context 
                     )
-
             # Verificar posição
             side, amount, _, is_open, _, _, _ = await gr.posicoes_abertas(symbol)
 

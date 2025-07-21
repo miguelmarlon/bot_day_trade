@@ -1,55 +1,11 @@
 import pandas as pd
 import numpy as np
-
-# def calcular_retorno_sinais(df: pd.DataFrame, horizontes: list = [5, 10, 20, 30, 50, 60]) -> pd.DataFrame:
-#     """
-#     Calcula os retornos futuros para cada sinal (1=compra, -1=short) em múltiplos horizontes.
-    
-#     Parâmetros:
-#     -----------
-#     df : pd.DataFrame
-#         DataFrame com colunas: ['close', 'sinal'] (assumindo timestamp como índice)
-#     horizontes : list
-#         Lista de horizontes (em candles) para os quais calcular o retorno futuro.
-    
-#     Retorno:
-#     --------
-#     pd.DataFrame com novas colunas 'return_N' contendo os retornos futuros para cada N em horizontes.
-#     """
-#     try:
-#         df_result = df.copy()
-
-#         df_result['sinal'] = pd.to_numeric(df_result['sinal'], errors='coerce').fillna(0)
-
-#         for h in horizontes:
-#             col_name = f'return_{h}'
-            
-#             preco_futuro = df_result['close'].shift(-h)
-            
-#             retorno_bruto = (preco_futuro - df_result['close']) / df_result['close']
-            
-#             retornos_finais = np.where(
-#                 df_result['sinal'] == 1,
-#                 retorno_bruto,     
-#                 np.where(
-#                     df_result['sinal'] == -1, 
-#                     -retorno_bruto,          
-#                     np.nan                   
-#                 )
-#             )
-            
-#             df_result[col_name] = retornos_finais 
-
-#         return df_result
-    
-#     except KeyError as ke:
-#         print(f"Erro: Coluna essencial faltando no DataFrame. Certifique-se de que 'close' e 'sinal' existam. Detalhes: {ke}")
-#         return pd.DataFrame()
-#     except Exception as e:
-#         print(f"Erro inesperado na função calcular_retorno_sinais: {e}")
-#         return pd.DataFrame()
+import vectorbt as vbt
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 def calcular_retorno_sinais_base_minuto(
+        
     df_sinais: pd.DataFrame,
     df_base: pd.DataFrame,
     horizontes_minutos: list = [5, 10, 15, 30, 60]
@@ -134,3 +90,41 @@ def calcular_retorno_sinais_base_minuto(
         print("-" * 60)
         
     return df_result.reset_index()
+
+# BACKTEST COM VECTORBT
+def run_backtest(file_path, macd_params, rsi_params, bb_params):
+    print(f"Carregando dados de: {file_path}")
+    try:
+        with open(file_path, 'r') as f:
+            total_linhas = sum(1 for _ in f)
+
+        linhas_a_pular = total_linhas - 200000
+        if linhas_a_pular <= 0:
+            linhas_a_pular = 0
+        else:
+            linhas_a_pular += 1
+
+        data = pd.read_csv(file_path, parse_dates=['Timestamp'], skiprows=range(1, linhas_a_pular))
+
+        if linhas_a_pular > 0 and len(data.columns) != 6:
+            data.columns = ['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume']
+
+        data['Timestamp'] = pd.to_datetime(data['Timestamp'], unit='s')
+        data.set_index('Timestamp', inplace=True)
+
+        required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+        if not all(col in data.columns for col in required_columns):
+            raise KeyError(f"Uma ou mais das colunas essenciais ({', '.join(required_columns)}) estão faltando no CSV.")
+        
+        print("Dados carregados com sucesso!")
+        print(f"Total de {len(data)} linhas de dados.")
+
+    except FileNotFoundError:
+        print(f"Erro: O arquivo '{file_path}' não foi encontrado. Verifique o caminho.")
+        return
+    except KeyError as e:
+        print(f"Erro: {e}. Verifique se 'Timestamp', 'Open', 'High', 'Low', 'Close' e 'Volume' estão presentes e com o nome correto.")
+        return
+    except Exception as e:
+        print(f"Ocorreu um erro ao ler o CSV: {e}")
+        return

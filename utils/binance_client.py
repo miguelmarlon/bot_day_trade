@@ -45,7 +45,8 @@ class BinanceHandler:
             'apiKey': BINANCE_API_KEY,
             'secret': BINANCE_SECRET_KEY,
             'enableRateLimit': True,
-            'options': {'defaultType': 'future'}
+            'options': {'defaultType': 'future',
+            'recvWindow': 10000}
         })
         
         # Retorna uma nova instância da classe, passando o cliente conectado.
