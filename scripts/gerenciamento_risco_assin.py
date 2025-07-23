@@ -407,7 +407,6 @@ class GerenciamentoRiscoAsync:
         except Exception as e:
             print(f"Erro ao enviar mensagem: {e}")
 
-# Erro ao enviar mensagem: Can't parse entities: can't find end of the entity starting at byte offset 103
     async def stop_dinamico(self, symbol: str, take_profit: float, stop_loss: float, context: CallbackContext = None) -> None:
         """Ajusta stops dinâmicos de forma assíncrona"""
 
@@ -421,10 +420,8 @@ class GerenciamentoRiscoAsync:
         try:
             positions = await self.binance_handler.client.fetch_positions(symbols=[symbol])
             position = positions[0] if positions else None
-            
             if not position:
                 print(f"[{symbol}] Nenhuma posição encontrada ou dados inválidos para gerenciar.")
-                # Opcional: Limpar estado interno se a posição não existe mais.
                 if symbol in self._highest_price_reached: del self._highest_price_reached[symbol]
                 if symbol in self._current_trailing_stop_price: del self._current_trailing_stop_price[symbol]
                 if symbol in self._is_trailing_active: del self._is_trailing_active[symbol]
@@ -432,16 +429,14 @@ class GerenciamentoRiscoAsync:
                 return
         
             side = position['side']
-            # Lembre-se de converter amount para float para cálculos, e abs() para remover o sinal
             amount = abs(float(position['info']['positionAmt'])) 
             entry_price = float(position['entryPrice'])
             mark_price = float(position['info']['markPrice'])
 
-            # Outra verificação importante para a quantidade da posição
-            if amount == 0: # Não 'not amount' pois 'amount' já é float e pode ser 0.0
-                if amount == 0: # Não 'not amount' pois 'amount' já é float e pode ser 0.0
+            if amount == 0:
+                if amount == 0: 
                     print(f"[{symbol}] Quantidade da posição é zero, nada para gerenciar.")
-                # Limpar estado interno se a posição não existe mais, verificando a existência do atributo
+               
                 if hasattr(self, '_highest_price_reached') and symbol in self._highest_price_reached:
                     del self._highest_price_reached[symbol]
                 if hasattr(self, '_current_trailing_stop_price') and symbol in self._current_trailing_stop_price:
@@ -453,36 +448,58 @@ class GerenciamentoRiscoAsync:
                 return
 
             orders = await self.binance_handler.client.fetch_orders(symbol)
-            take_profit_order_price = None
-            if orders:
-                # Procura por uma ordem TAKE_PROFIT_MARKET ou a última ordem com 'stopPrice'
-                for order in orders:
-                    # Verifica se 'stopPrice' existe e é um número válido antes de converter
-                    if order.get('type') == 'TAKE_PROFIT_MARKET' and \
-                       order.get('stopPrice') is not None and \
-                       is_number(order['stopPrice']):
-                        take_profit_order_price = float(order['stopPrice'])
-                        break 
+            take_profit_price = None
+            # if orders:
+            #     for order in orders:
+            #         if order.get('type') == 'TAKE_PROFIT_MARKET' and \
+            #             order.get('stopPrice') is not None and \
+            #             is_number(order['stopPrice']):
+            #             take_profit_order_price = float(order['stopPrice'])
+            #             break 
                 
-                # Se não encontrou uma ordem TP específica, tenta a última ordem como fallback
-                if take_profit_order_price is None:
-                    last_order = orders[-1]
-                    if last_order.get('stopPrice') is not None and \
-                       is_number(last_order['stopPrice']):
-                        take_profit_order_price = float(last_order['stopPrice'])
-                    else:
-                        print(f"[{symbol}] Aviso: last_order['stopPrice'] não é um número válido ou ordem sem stopPrice. Valor: {last_order.get('stopPrice')}, Ordem Tipo: {last_order.get('type')}")
+            #     if take_profit_order_price is None:
+            #         last_order = orders[-1]
+            #         if last_order.get('stopPrice') is not None and \
+            #             is_number(last_order['stopPrice']):
+            #             take_profit_order_price = float(last_order['stopPrice'])
+            #         else:
+            #             print(f"[{symbol}] Aviso: last_order['stopPrice'] não é um número válido ou ordem sem stopPrice. Valor: {last_order.get('stopPrice')}, Ordem Tipo: {last_order.get('type')}")
             
-            if take_profit_order_price is None:
+            #-------- ACERTAR ESSA LÓGICA --------
+            if orders:
+                # Primeiro, tente encontrar uma ordem TAKE_PROFIT_MARKET ativa com stopPrice
+                for order in orders:
+                    if order.get('type') == 'TAKE_PROFIT_MARKET' and \
+                        order.get('status') == 'open' and \
+                        order.get('stopPrice') is not None and \
+                        is_number(order['stopPrice']):
+                        take_profit_price = float(order['stopPrice'])
+                        print(f"[{symbol}] Ordem TAKE_PROFIT_MARKET ativa encontrada com stopPrice: {take_profit_price}")
+                        break
+        
+            # Se nenhuma ordem TAKE_PROFIT_MARKET ativa foi encontrada, recalcule o preço do Take Profit
+            if take_profit_price is None:
+                # Calcule o Take Profit com base no preço de entrada (ou preço de marcação, dependendo da sua lógica)
+                # Geralmente é baseado no preço de entrada para definir um alvo fixo
+                if side == 'long':
+                    take_profit_price = entry_price * (1 + take_profit)
+                elif side == 'short':
+                    take_profit_price = entry_price * (1 - take_profit)
+                
+                print(f"[{symbol}] Nenhuma ordem TAKE_PROFIT_MARKET ativa encontrada. Recalculando take_profit_price para: {take_profit_price:.8f}")
+            #-------- ACERTAR ESSA LÓGICA --------
+            
+            if take_profit_price is None:
                 print(f"[{symbol}] Nenhuma ordem de Take Profit válida encontrada. Não é possível gerenciar stops dinâmicos.")
                 return
-
-            # Use o take_profit_order_price obtido para referência
-            current_take_profit_reference_price = take_profit_order_price
+           
+            # current_take_profit_reference_price = take_profit_order_price
 
             if side == 'long':
                 price_var = ((mark_price - entry_price) / entry_price) * 100
-                print(f'{symbol}: {price_var:.2f}% em relação a entrada do {side}')
+                msg = f'{symbol}: {price_var:.2f}% em relação a entrada do {side}'
+                print(msg)
+                await self.enviar_mensagem(context, msg) if context else None
 
                 if ((take_profit_price - mark_price) / mark_price) <= (0.2 * take_profit):
                     await self.binance_handler.client.cancel_all_orders (symbol)
@@ -501,15 +518,11 @@ class GerenciamentoRiscoAsync:
                         except Exception as e:
                             print(f"[{symbol}] Erro em price_to_precision com valor '{raw_price}': {e}")
                             return
-
                         if not is_number(precise_price):
                             print(f"[{symbol}] Preço com precisão inválido: {precise_price}")
                             return
-
                         current_price = float(precise_price)
-                    
                     else:
-                        
                         current_price = None
                         print(f"[{symbol}] Aviso: Não foi possível obter o último trade.")
 
@@ -530,8 +543,9 @@ class GerenciamentoRiscoAsync:
 
             elif side == 'short':
                 price_var = ((entry_price - mark_price) / mark_price) * 100
-                print(f'{symbol}: {price_var:.2f}% em relação a entrada do {side}')
-
+                msg = f'{symbol}: {price_var:.2f}% em relação a entrada do {side}'
+                print(msg)
+                await self.enviar_mensagem(context, msg) if context else None
                 if ((mark_price - take_profit_price) / take_profit_price) <= (0.2 * take_profit):
                     await self.binance_handler.client.cancel_all_orders (symbol)
                     trades = await self.binance_handler.client.fetch_trades (symbol)
@@ -539,25 +553,20 @@ class GerenciamentoRiscoAsync:
                     
                     if last_trade:
                         raw_price = last_trade.get('price')
-
                         if not raw_price or not is_number(raw_price):
                             print(f"[{symbol}] Preço bruto inválido (antes de precisão): {raw_price}")
                             return
-
                         try:
                             precise_price = self.binance_handler.client.price_to_precision(symbol, raw_price)
                         except Exception as e:
                             print(f"[{symbol}] Erro em price_to_precision com valor '{raw_price}': {e}")
                             return
-
                         if not is_number(precise_price):
                             print(f"[{symbol}] Preço com precisão inválido: {precise_price}")
                             return
-
                         current_price = float(precise_price)
                     else:
-                        # Lidar com o caso de não haver trades (definir um preço padrão, logar, etc.)
-                        current_price = None # Ou algum valor padrão adequado
+                        current_price = None
                         print(f"[{symbol}] Aviso: Não foi possível obter o último trade.")
 
                     stop_loss_price = current_price * (1 + stop_loss)

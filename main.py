@@ -14,7 +14,7 @@ from strategies.estrategia_rompimento import trading_task_rompimento
 from utils.binance_client import BinanceHandler
 from config.config import TELEGRAM_TOKEN_BOT_TRADE
 from scripts.prediction_model import treina_modelo, predict
-from scripts.cryptos_select import selecionar_cryptos, calcular_tamanho_operacoes
+from scripts.cryptos_select import selecionar_cryptos_sem_notas, calcular_tamanho_operacoes_sem_notas
 import logging
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext
@@ -188,30 +188,16 @@ async def selecionar_moedas_handler(update: Update, context: CallbackContext):
         await update.message.reply_text("✅ Comando recebido! Iniciando o processo de análise e trade...")
         
         await update.message.reply_text("🔎 Etapa 1/2: Analisando mercado e indicadores...")
-        df = await selecionar_cryptos(limite_moedas=150)
+        df = await selecionar_cryptos_sem_notas(limite_moedas=150)
 
         await update.message.reply_text("🔍 Etapa 2/2: Calculando tamanhos de operações...")
-        df_resultado_analise = await calcular_tamanho_operacoes(df, limiar_compra=60, limiar_venda=30)
+        df_resultado_analise = await calcular_tamanho_operacoes_sem_notas(df)
 
         if not df_resultado_analise.empty:
-            # Pega a lista de moedas da coluna 'moeda'
-            longs = df_resultado_analise[df_resultado_analise['acao'] == 'LONG']
-            shorts = df_resultado_analise[df_resultado_analise['acao'] == 'SHORT']
-            mensagem_partes = []
-
-            if not longs.empty:
-                lista_longs = "\n".join(longs['symbol'])
-                mensagem_partes.append(f"Moedas para operações de LONG:\n{lista_longs}")
+            mensagem = []
+            mensagem.append(f"Moedas selecionadas:\n{', '.join(df_resultado_analise['symbol'].unique())}")
+            await update.message.reply_text(mensagem)
             
-            if not shorts.empty:
-                lista_shorts = "\n".join(shorts['symbol'])
-                mensagem_partes.append(f"Moedas para operações de SHORT:\n{lista_shorts}")
-            
-            if mensagem_partes:
-                mensagem_resultado = "\n\n".join(mensagem_partes)
-                await update.message.reply_text(mensagem_resultado)
-            else:
-                await update.message.reply_text("ℹ️ Nenhuma moeda atendeu aos critérios para operação no momento.")
         else:
             await update.message.reply_text("ℹ️ Nenhuma moeda atendeu aos critérios da análise no momento.")
         
@@ -243,7 +229,7 @@ async def trading_task(context):
             for _, row in df_config.iterrows():
                 symbol = row['symbol']
                 posicao_max = row['tamanho']
-                tipo_operacao = row['acao']
+                # tipo_operacao = row['acao']
 
                 # await gr.fecha_pnl(
                 #         symbol=symbol, 
@@ -254,7 +240,7 @@ async def trading_task(context):
                 
                 await gr.stop_dinamico(
                         symbol=symbol, 
-                        take_profit=0.06,
+                        take_profit=0.04,
                         stop_loss=-0.02,
                         context=context 
                     )

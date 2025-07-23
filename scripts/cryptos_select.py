@@ -1,12 +1,13 @@
 import sys
 from pathlib import Path
+from xml.sax import handler
 sys.path.append(str(Path(__file__).parent.parent))
 import os
 import pandas as pd
 from scripts.binance_server import BinanceHandler
 import asyncio
 import ollama
-from .technical_analysis import calcular_indicadores
+# from .technical_analysis import calcular_indicadores
 from utils.binance_client import BinanceHandler
 import re
 import unicodedata
@@ -29,129 +30,154 @@ def parse_llm_score(response):
 
     return "INDEFINIDO"
 
-async def selecionar_cryptos(limite_moedas=100):
+# async def selecionar_cryptos(limite_moedas=100):
+#     """
+#     Roda a coleta de indicadores técnicos para todas as criptos em um DataFrame.
+#     :param df_criptos: DataFrame com uma coluna 'symbol' contendo os nomes das criptos (ex: BTCUSDT).
+#     :param intervalo: Intervalo das velas.
+#     :param limite: Número de candles.
+#     :return: Dicionário com dados históricos e indicadores para cada cripto.
+#     """
+#     handler = None
+#     try:
+#         handler = await BinanceHandler.create()
+#         modelos_ollama = ['falcon3:3b', 'falcon3:7b']
+#         df_criptos = await handler.get_volume_report(quote_currency='USDT', limit=limite_moedas)
+
+#         resultados_finais_notas = []
+#         for index, row in df_criptos.iterrows():
+#             symbol = row['symbol']
+#             try:
+            
+#                 df_candles = await handler.obter_dados_candles(symbol=symbol, timeframe='1d', limit=500)
+#                 print(f"Coletando dados para {symbol}...")
+#                 #print(df_candles.tail())
+#                 df_indicadores = calcular_indicadores(df_candles)
+#                 # print(df_indicadores.tail())
+#                 if not df_indicadores.empty:
+                    
+#                     prompt = f"""
+#                     O ativo {symbol} apresentou os seguintes dados no antepenúltimo candlestick:
+#                     Abertura: {df_indicadores['open'].iloc[-3]}
+#                     Fechamento: {df_indicadores['close'].iloc[-3]}
+#                     Máximo: {df_indicadores['high'].iloc[-3]}
+#                     Mínimo: {df_indicadores['low'].iloc[-3]}
+#                     Volume: {df_indicadores['volume'].iloc[-3]}
+
+#                     Penúltimo candlestick:
+#                     Abertura: {df_indicadores['open'].iloc[-2]}
+#                     Fechamento: {df_indicadores['close'].iloc[-2]}
+#                     Máximo: {df_indicadores['high'].iloc[-2]}
+#                     Mínimo: {df_indicadores['low'].iloc[-2]}
+#                     Volume: {df_indicadores['volume'].iloc[-2]}
+
+#                     Último candlestick:
+#                     Abertura: {df_indicadores['open'].iloc[-1]}
+#                     Fechamento: {df_indicadores['close'].iloc[-1]}
+#                     Máximo: {df_indicadores['high'].iloc[-1]}
+#                     Mínimo: {df_indicadores['low'].iloc[-1]}
+#                     Volume: {df_indicadores['volume'].iloc[-1]}
+
+#                     Apresentou os seguintes indicadores:
+#                     - RSI: {df_indicadores['RSI'].iloc[-1]}
+#                     - MACD: {df_indicadores['MACD_12_26_9'].iloc[-1]}
+#                     - MACD Histórico: {df_indicadores['MACDh_12_26_9'].iloc[-1]}
+#                     - MACD Signal: {df_indicadores['MACDs_12_26_9'].iloc[-1]}
+#                     - EMA_20: {df_indicadores['EMA_20'].iloc[-1]}
+#                     - EMA_50: {df_indicadores['EMA_50'].iloc[-1]}
+#                     - SMA_50: {df_indicadores['SMA_50'].iloc[-1]}
+#                     - SMA_200: {df_indicadores['SMA_200'].iloc[-1]}
+#                     - MFI: {df_indicadores['MFI_14'].iloc[-1]}
+#                     - ATR: {df_indicadores['ATR'].iloc[-1]}
+#                     - CCI: {df_indicadores['CCI'].iloc[-1]}
+#                     - WILLIAMS_R: {df_indicadores['WILLIAMS_R'].iloc[-1]}
+#                     - Momentum: {df_indicadores['Momentum'].iloc[-1]}
+#                     - Bollinger Upper: {df_indicadores['BBU'].iloc[-1]}
+#                     - Bollinger Middle: {df_indicadores['BBM'].iloc[-1]}
+#                     - Bollinger Lower: {df_indicadores['BBL'].iloc[-1]}
+#                     - Pivot: {df_indicadores['PP'].iloc[-1]}
+#                     - Pivot R1: {df_indicadores['R1'].iloc[-1]}
+#                     - Pivot S1: {df_indicadores['S1'].iloc[-1]}
+#                     - Pivot R2: {df_indicadores['R2'].iloc[-1]}
+#                     - Pivot S2: {df_indicadores['S2'].iloc[-1]}
+#                     - Pivot R3: {df_indicadores['R3'].iloc[-1]}
+#                     - Pivot S3: {df_indicadores['S3'].iloc[-1]}
+#                     - Stochastic K: {df_indicadores['STOCHk_14_3_3'].iloc[-1]}
+#                     - Stochastic D: {df_indicadores['STOCHd_14_3_3'].iloc[-1]}
+
+#                     Com base nesses indicadores e no comportamento histórico recente, 
+#                     avalie a probabilidade de um movimento de alta para o ativo 
+#                     {symbol} em uma escala de 0 (probabilidade muito baixa) a 100 (probabilidade muito alta).
+
+#                     Responda somente e exclusivamente dessa forma:
+#                     "nota: SUA NOTA"
+#                     """
+#                     notas_modelos = {'symbol': symbol}
+
+#                     for modelo in modelos_ollama:
+#                         #"role": "user", 
+#                         relatorio = ollama.chat(model=modelo, messages=[{"role": "user", "content": prompt}])
+#                         conteudo = relatorio['message']['content'] 
+#                         #if isinstance(relatorio, dict) else str(relatorio)
+                        
+#                         print(f'Predicao {modelo} para o ativo: {symbol}')
+#                         print(f'Conteudo: {conteudo}')
+                        
+#                         nota = parse_llm_score(conteudo)
+#                         try:
+#                             nota = float(nota)
+#                         except ValueError:
+#                             nota = None
+
+#                         notas_modelos[modelo] = nota
+                        
+#                         await asyncio.sleep(3)
+#                     print('#' * 50)
+#                     notas_validas = [v for k, v in notas_modelos.items() if k != 'symbol' and isinstance(v, (int, float))]
+#                     notas_modelos['media'] = sum(notas_validas) / len(notas_validas) if notas_validas else None
+#                     resultados_finais_notas.append(notas_modelos)
+#             except Exception as e:
+#                 # Se qualquer erro ocorrer para este símbolo, ele será capturado aqui
+#                 print(f"!!!!!!!!!! FALHA AO PROCESSAR O SÍMBOLO {symbol}: {e} !!!!!!!!!!")
+#                 # O 'continue' garante que o loop pulará para o próximo símbolo
+#                 continue
+            
+#         if not resultados_finais_notas:
+#             print("Nenhum resultado foi gerado.")
+#             return pd.DataFrame(columns=['symbol'] + modelos_ollama + ['media'])
+
+#         df_resultados = pd.DataFrame(resultados_finais_notas)
+        
+#         return df_resultados
+    
+#     except Exception as e:
+
+#         print(f"Erro ao coletar dados: {e}")
+        
+#     finally:
+#         if handler:
+#             await handler.close_connection()
+#             print("Conexão com o BinanceHandler fechada.")
+
+async def selecionar_cryptos_sem_notas(limite_moedas=100):
     """
-    Roda a coleta de indicadores técnicos para todas as criptos em um DataFrame.
-    :param df_criptos: DataFrame com uma coluna 'symbol' contendo os nomes das criptos (ex: BTCUSDT).
-    :param intervalo: Intervalo das velas.
-    :param limite: Número de candles.
-    :return: Dicionário com dados históricos e indicadores para cada cripto.
-    """
+    Coleta dados de volume de criptomoedas sem usar modelos de notas.
+    :param limite_moedas: Número máximo de criptomoedas a serem coletadas.
+    :return: DataFrame com os dados de volume das criptomoedas."""
+
     handler = None
     try:
         handler = await BinanceHandler.create()
-        modelos_ollama = ['falcon3:3b', 'falcon3:7b']
-        df_criptos = await handler.get_volume_report(quote_currency='USDT', limit=limite_moedas)
-
-        resultados_finais_notas = []
-        for index, row in df_criptos.iterrows():
-            symbol = row['symbol']
-            try:
-            
-                df_candles = await handler.obter_dados_candles(symbol=symbol, timeframe='1d', limit=500)
-                print(f"Coletando dados para {symbol}...")
-                #print(df_candles.tail())
-                df_indicadores = calcular_indicadores(df_candles)
-                # print(df_indicadores.tail())
-                if not df_indicadores.empty:
-                    
-                    prompt = f"""
-                    O ativo {symbol} apresentou os seguintes dados no antepenúltimo candlestick:
-                    Abertura: {df_indicadores['open'].iloc[-3]}
-                    Fechamento: {df_indicadores['close'].iloc[-3]}
-                    Máximo: {df_indicadores['high'].iloc[-3]}
-                    Mínimo: {df_indicadores['low'].iloc[-3]}
-                    Volume: {df_indicadores['volume'].iloc[-3]}
-
-                    Penúltimo candlestick:
-                    Abertura: {df_indicadores['open'].iloc[-2]}
-                    Fechamento: {df_indicadores['close'].iloc[-2]}
-                    Máximo: {df_indicadores['high'].iloc[-2]}
-                    Mínimo: {df_indicadores['low'].iloc[-2]}
-                    Volume: {df_indicadores['volume'].iloc[-2]}
-
-                    Último candlestick:
-                    Abertura: {df_indicadores['open'].iloc[-1]}
-                    Fechamento: {df_indicadores['close'].iloc[-1]}
-                    Máximo: {df_indicadores['high'].iloc[-1]}
-                    Mínimo: {df_indicadores['low'].iloc[-1]}
-                    Volume: {df_indicadores['volume'].iloc[-1]}
-
-                    Apresentou os seguintes indicadores:
-                    - RSI: {df_indicadores['RSI'].iloc[-1]}
-                    - MACD: {df_indicadores['MACD_12_26_9'].iloc[-1]}
-                    - MACD Histórico: {df_indicadores['MACDh_12_26_9'].iloc[-1]}
-                    - MACD Signal: {df_indicadores['MACDs_12_26_9'].iloc[-1]}
-                    - EMA_20: {df_indicadores['EMA_20'].iloc[-1]}
-                    - EMA_50: {df_indicadores['EMA_50'].iloc[-1]}
-                    - SMA_50: {df_indicadores['SMA_50'].iloc[-1]}
-                    - SMA_200: {df_indicadores['SMA_200'].iloc[-1]}
-                    - MFI: {df_indicadores['MFI_14'].iloc[-1]}
-                    - ATR: {df_indicadores['ATR'].iloc[-1]}
-                    - CCI: {df_indicadores['CCI'].iloc[-1]}
-                    - WILLIAMS_R: {df_indicadores['WILLIAMS_R'].iloc[-1]}
-                    - Momentum: {df_indicadores['Momentum'].iloc[-1]}
-                    - Bollinger Upper: {df_indicadores['BBU'].iloc[-1]}
-                    - Bollinger Middle: {df_indicadores['BBM'].iloc[-1]}
-                    - Bollinger Lower: {df_indicadores['BBL'].iloc[-1]}
-                    - Pivot: {df_indicadores['PP'].iloc[-1]}
-                    - Pivot R1: {df_indicadores['R1'].iloc[-1]}
-                    - Pivot S1: {df_indicadores['S1'].iloc[-1]}
-                    - Pivot R2: {df_indicadores['R2'].iloc[-1]}
-                    - Pivot S2: {df_indicadores['S2'].iloc[-1]}
-                    - Pivot R3: {df_indicadores['R3'].iloc[-1]}
-                    - Pivot S3: {df_indicadores['S3'].iloc[-1]}
-                    - Stochastic K: {df_indicadores['STOCHk_14_3_3'].iloc[-1]}
-                    - Stochastic D: {df_indicadores['STOCHd_14_3_3'].iloc[-1]}
-
-                    Com base nesses indicadores e no comportamento histórico recente, 
-                    avalie a probabilidade de um movimento de alta para o ativo 
-                    {symbol} em uma escala de 0 (probabilidade muito baixa) a 100 (probabilidade muito alta).
-
-                    Responda somente e exclusivamente dessa forma:
-                    "nota: SUA NOTA"
-                    """
-                    notas_modelos = {'symbol': symbol}
-
-                    for modelo in modelos_ollama:
-                        #"role": "user", 
-                        relatorio = ollama.chat(model=modelo, messages=[{"role": "user", "content": prompt}])
-                        conteudo = relatorio['message']['content'] 
-                        #if isinstance(relatorio, dict) else str(relatorio)
-                        
-                        print(f'Predicao {modelo} para o ativo: {symbol}')
-                        print(f'Conteudo: {conteudo}')
-                        
-
-                        nota = parse_llm_score(conteudo)
-                        try:
-                            nota = float(nota)  # transforma para número, se possível
-                        except ValueError:
-                            nota = None  # se não for número, guarda como None
-
-                        notas_modelos[modelo] = nota
-                        
-                        await asyncio.sleep(3)
-                    print('#' * 50)
-                    notas_validas = [v for k, v in notas_modelos.items() if k != 'symbol' and isinstance(v, (int, float))]
-                    notas_modelos['media'] = sum(notas_validas) / len(notas_validas) if notas_validas else None
-                    resultados_finais_notas.append(notas_modelos)
-            except Exception as e:
-                # Se qualquer erro ocorrer para este símbolo, ele será capturado aqui
-                print(f"!!!!!!!!!! FALHA AO PROCESSAR O SÍMBOLO {symbol}: {e} !!!!!!!!!!")
-                # O 'continue' garante que o loop pulará para o próximo símbolo
-                continue
-            
-        if not resultados_finais_notas:
-            print("Nenhum resultado foi gerado.")
-            return pd.DataFrame(columns=['symbol'] + modelos_ollama + ['media'])
-
-        df_resultados = pd.DataFrame(resultados_finais_notas)
         
-        return df_resultados
-    
+        df_criptos = await handler.get_volume_report(quote_currency='USDT', limit=limite_moedas)
+        if df_criptos.empty:
+            print("Nenhuma criptomoeda encontrada com o volume especificado.")
+            return pd.DataFrame(columns=['symbol', 'volume'])
+        else:
+            return df_criptos
+        print(f"Coletadas {len(df_criptos)} criptomoedas com os maiores volumes.")
+        
     except Exception as e:
-
         print(f"Erro ao coletar dados: {e}")
         
     finally:
@@ -159,121 +185,209 @@ async def selecionar_cryptos(limite_moedas=100):
             await handler.close_connection()
             print("Conexão com o BinanceHandler fechada.")
 
-async def calcular_tamanho_operacoes(df_sinais, limiar_compra, limiar_venda):
-    """
-    Calcula o tamanho das operações de compra ou venda para uma lista de ativos.
+# async def calcular_tamanho_operacoes(df_sinais, limiar_compra, limiar_venda):
+#     """
+#     Calcula o tamanho das operações de compra ou venda para uma lista de ativos.
 
-    :param df_sinais: DataFrame com colunas 'symbol' e 'media'.
-    :param exchange: Objeto da corretora CCXT já instanciado.
-    :param capital_total_usdt: Seu saldo total em USDT disponível para trading.
-    :param percentual_capital_por_operacao: Fração do capital a ser usada em CADA operação de compra (ex: 0.10 para 10%).
-    :param limiar_compra: Nota média acima da qual uma compra é considerada.
-    :param limiar_venda: Nota média abaixo da qual uma venda é considerada.
-    :return: Um DataFrame com os resultados calculados.
-    """
+#     :param df_sinais: DataFrame com colunas 'symbol' e 'media'.
+#     :param exchange: Objeto da corretora CCXT já instanciado.
+#     :param capital_total_usdt: Seu saldo total em USDT disponível para trading.
+#     :param percentual_capital_por_operacao: Fração do capital a ser usada em CADA operação de compra (ex: 0.10 para 10%).
+#     :param limiar_compra: Nota média acima da qual uma compra é considerada.
+#     :param limiar_venda: Nota média abaixo da qual uma venda é considerada.
+#     :return: Um DataFrame com os resultados calculados.
+#     """
+#     if df_sinais is None or df_sinais.empty:
+#         print("DataFrame de sinais está vazio ou é nulo. Nenhuma operação será calculada.")
+#         return pd.DataFrame()
+    
+#     NUMERO_MAX_TENTATIVAS = 3
+    
+#     handler = await BinanceHandler.create()
+#     resultados = []
+#     try:
+
+#         for index, row in df_sinais.iterrows():
+#             symbol = row['symbol']
+#             media = row['media']
+#             acao = "MANTER"
+#             quantidade_calculada = 0.0
+
+#             print(f"--- Processando {symbol} (Média: {media}) ---")
+
+#             if media >= limiar_compra:
+#                 acao = "LONG"
+#             elif media <= limiar_venda:
+#                 acao = "SHORT"
+                
+#             if acao != "MANTER":
+#                 preco_final = None
+#                 try:
+#                     for tentativa in range(NUMERO_MAX_TENTATIVAS):
+#                         ticker = await handler.client.fetch_ticker(symbol)
+#                         preco_candidato = ticker['ask'] if acao == "LONG" else ticker['bid']
+#                         if preco_candidato is None:
+#                             preco_candidato = ticker.get('last')
+
+#                         if preco_candidato is not None:
+#                             preco_final = preco_candidato
+#                             print(f"Preço obtido com sucesso: {preco_final}")
+#                             break 
+                        
+#                         # Se falhou, espera antes da próxima tentativa
+#                         if tentativa < NUMERO_MAX_TENTATIVAS - 1:
+#                             print("Preço indisponível, esperando para tentar novamente...")
+#                             await asyncio.sleep(1)
+
+#                     if preco_final is None:
+#                         print(f"Não foi possível obter preço para {symbol} após {NUMERO_MAX_TENTATIVAS} tentativas. Pulando.")
+#                         acao = "ERRO_PRECO"
+
+#                     else:
+
+#                         market_rules = handler.client.markets[symbol]
+#                         min_cost = market_rules['limits']['cost'].get('min', 0)
+#                         min_amount = market_rules['limits']['amount'].get('min', 0)
+#                         float(min_cost)  # Garantindo que min_cost seja um float
+#                         float(min_amount)  # Garantindo que min_amount seja um float
+#                         print(f"Regras de mercado para {symbol}: Custo mínimo: {min_cost}, Quantidade mínima: {min_amount}")
+
+#                         capital = 0
+
+#                         if min_cost < 5:
+#                             capital = 7
+#                         elif min_cost < 10:
+#                             capital = 75
+#                         elif min_cost > 15:
+#                             capital = 100
+                        
+#                         if capital > 0:
+#                             dado = await handler.get_price(symbol)
+#                             valor_moeda = dado['price']
+#                             float(valor_moeda)
+#                             quantidade = capital / valor_moeda
+#                             quantidade_formatada = handler.client.amount_to_precision(symbol, quantidade)
+#                             print(f"Capital a investir: {capital}, Quantidade formatada: {quantidade_formatada}")
+#                         else:
+#                             print(f"Não foi possível definir o capital para min_cost = {min_cost}. Verifique as condições.")
+#                             quantidade_formatada = 0
+
+#                         if acao in ["LONG", "SHORT"]:
+#                             resultados.append({
+#                                 'symbol': symbol,
+#                                 'media': media,
+#                                 'acao': acao,
+#                                 'tamanho': float(quantidade_formatada) 
+#                             })
+#                             print(f"Resultado para {symbol}: Ação={acao}, Tamanho={quantidade_formatada}")
+#                         else:
+                            
+#                             resultados.append({
+#                                 'symbol': symbol,
+#                                 'media': media,
+#                                 'acao': acao,
+#                                 'tamanho': 0.0
+#                             })
+#                             print(f"Operação para {symbol} não realizada. Motivo: {acao}")
+                        
+#                         await asyncio.sleep(3) 
+                
+#                 except Exception as e:
+#                     print(f"Erro ao calcular tamanho da operação para {symbol}: {e}")
+        
+#         df_resultados = pd.DataFrame(resultados)
+#         df_resultados.to_csv('config/cripto_tamanho_xgb.csv', index=False)
+#         df_resultados.to_csv('config/cripto_tamanho_macd.csv', index=False)
+
+#         return df_resultados       
+        
+#     except Exception as e:
+#         print(f"Erro ao calcular tamanhos de operações: {e}")
+        
+#     finally:
+#         if handler:
+#             await handler.close_connection()
+#             print("Conexão com o BinanceHandler fechada.")
+    
+async def calcular_tamanho_operacoes_sem_notas(df_sinais):
+
     if df_sinais is None or df_sinais.empty:
         print("DataFrame de sinais está vazio ou é nulo. Nenhuma operação será calculada.")
         return pd.DataFrame()
     
     NUMERO_MAX_TENTATIVAS = 3
     
-    handler = await BinanceHandler.create()
+    handler = None
     resultados = []
     try:
+        handler = await BinanceHandler.create()
 
         for index, row in df_sinais.iterrows():
             symbol = row['symbol']
-            media = row['media']
-            acao = "MANTER"
-            quantidade_calculada = 0.0
+            print(f"--- Processando {symbol} ---")
 
-            print(f"--- Processando {symbol} (Média: {media}) ---")
-
-            if media >= limiar_compra:
-                acao = "LONG"
-            elif media <= limiar_venda:
-                acao = "SHORT"
-                
-            if acao != "MANTER":
-                preco_final = None
-                try:
-                    for tentativa in range(NUMERO_MAX_TENTATIVAS):
-                        ticker = await handler.client.fetch_ticker(symbol)
-                        preco_candidato = ticker['ask'] if acao == "LONG" else ticker['bid']
-                        if preco_candidato is None:
-                            preco_candidato = ticker.get('last')
-
-                        if preco_candidato is not None:
-                            preco_final = preco_candidato
-                            print(f"Preço obtido com sucesso: {preco_final}")
-                            break 
-                        
-                        # Se falhou, espera antes da próxima tentativa
+            preco_final = None
+            
+            try:
+                for tentativa in range(NUMERO_MAX_TENTATIVAS):
+                    ticker = await handler.client.fetch_ticker(symbol)
+                    preco_candidato = ticker.get('last')
+                    if preco_candidato is not None:
+                        preco_final = preco_candidato
+                        print(f"Preço obtido com sucesso: {preco_final}")
+                        break  # Sai do loop se o preço foi obtido com sucesso
+                    else:
                         if tentativa < NUMERO_MAX_TENTATIVAS - 1:
                             print("Preço indisponível, esperando para tentar novamente...")
-                            await asyncio.sleep(1)
+                            await asyncio.sleep(2)
 
-                    if preco_final is None:
-                        print(f"Não foi possível obter preço para {symbol} após {NUMERO_MAX_TENTATIVAS} tentativas. Pulando.")
-                        acao = "ERRO_PRECO"
+                if preco_final is None:
+                    print(f"Não foi possível obter preço para {symbol} após {NUMERO_MAX_TENTATIVAS} tentativas. Pulando.")
+                    continue
+                else:
+                    market_rules = handler.client.markets[symbol]
+                    min_cost = market_rules['limits']['cost'].get('min', 0)
+                    min_amount = market_rules['limits']['amount'].get('min', 0)
+                    float(min_cost)  
+                    float(min_amount)  
+                    print(f"Regras de mercado para {symbol}: Custo mínimo: {min_cost}, Quantidade mínima: {min_amount}")
 
+                    capital = 0
+                    if min_cost < 5:
+                        capital = 6
+                    elif min_cost < 10:
+                        capital = 11
+                    elif min_cost > 15:
+                        capital = 20
+                    else: 
+                        capital = min_cost * 1.2
+
+                    if capital > 0:
+                        valor_moeda = float(preco_final)
+                        quantidade = capital / valor_moeda
+                        quantidade_formatada = float(handler.client.amount_to_precision(symbol, quantidade))
+                        print(f"Capital a investir: {capital}, Quantidade formatada: {quantidade_formatada}")
                     else:
+                        print(f"Não foi possível definir o capital para min_cost = {min_cost}. Verifique as condições.")
+                        quantidade_formatada = 0
+                    if quantidade_formatada is not None and quantidade_formatada > 0:
+                        quantidade_final = quantidade_formatada * 5
+                        resultados.append({
+                            'symbol': symbol,
+                            'tamanho': quantidade_final
+                        })
+                    else:
+                        print(f"Operação para {symbol} não realizada.")
 
-                        market_rules = handler.client.markets[symbol]
-                        min_cost = market_rules['limits']['cost'].get('min', 0)
-                        min_amount = market_rules['limits']['amount'].get('min', 0)
-                        float(min_cost)  # Garantindo que min_cost seja um float
-                        float(min_amount)  # Garantindo que min_amount seja um float
-                        print(f"Regras de mercado para {symbol}: Custo mínimo: {min_cost}, Quantidade mínima: {min_amount}")
+                    await asyncio.sleep(3)
+                    
+            except Exception as e:
+                print(f"Erro ao processar {symbol}: {e}")
 
-                        capital = 0
-
-                        if min_cost < 5:
-                            capital = 7
-                        elif min_cost < 10:
-                            capital = 75
-                        elif min_cost > 15:
-                            capital = 100
-                        
-                        if capital > 0:
-                            dado = await handler.get_price(symbol)
-                            valor_moeda = dado['price']
-                            float(valor_moeda)
-                            quantidade = capital / valor_moeda
-                            quantidade_formatada = handler.client.amount_to_precision(symbol, quantidade)
-                            print(f"Capital a investir: {capital}, Quantidade formatada: {quantidade_formatada}")
-                        else:
-                            print(f"Não foi possível definir o capital para min_cost = {min_cost}. Verifique as condições.")
-                            quantidade_formatada = 0
-
-                        if acao in ["LONG", "SHORT"]:
-                            resultados.append({
-                                'symbol': symbol,
-                                'media': media,
-                                'acao': acao,
-                                'tamanho': float(quantidade_formatada) 
-                            })
-                            print(f"Resultado para {symbol}: Ação={acao}, Tamanho={quantidade_formatada}")
-                        else:
-                            
-                            resultados.append({
-                                'symbol': symbol,
-                                'media': media,
-                                'acao': acao,
-                                'tamanho': 0.0
-                            })
-                            print(f"Operação para {symbol} não realizada. Motivo: {acao}")
-                        
-                        await asyncio.sleep(3) 
-                
-                except Exception as e:
-                    print(f"Erro ao calcular tamanho da operação para {symbol}: {e}")
-        
         df_resultados = pd.DataFrame(resultados)
         df_resultados.to_csv('config/cripto_tamanho_xgb.csv', index=False)
         df_resultados.to_csv('config/cripto_tamanho_macd.csv', index=False)
-
-        return df_resultados       
+        return df_resultados
         
     except Exception as e:
         print(f"Erro ao calcular tamanhos de operações: {e}")
@@ -282,11 +396,10 @@ async def calcular_tamanho_operacoes(df_sinais, limiar_compra, limiar_venda):
         if handler:
             await handler.close_connection()
             print("Conexão com o BinanceHandler fechada.")
-    
 
-# if __name__ == "__main__":
-#     print("Iniciando script de teste do BinanceHandler...")
-#     df = asyncio.run(selecionar_cryptos(limite_moedas=150))
-#     df_quantidades = asyncio.run(calcular_tamanho_operacoes(df, margem_usd=10, limiar_compra=60, limiar_venda= 40))
-#     df_quantidades.to_csv('config/cripto_tamanho_xgb.csv', index=False)
-#     df_quantidades.to_csv('config/cripto_tamanho_macd.csv', index=False)
+if __name__ == "__main__":
+    print("Iniciando script de teste do BinanceHandler...")
+    df = asyncio.run(selecionar_cryptos_sem_notas(limite_moedas=150))
+    df_quantidades = asyncio.run(calcular_tamanho_operacoes_sem_notas(df))
+#     
+

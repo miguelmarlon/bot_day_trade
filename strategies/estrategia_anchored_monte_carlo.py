@@ -19,7 +19,7 @@ async def estrategia_anchored_monte_carlo(binance,
                                           simulation_count = 500, 
                                           forecast_horizon = 30, 
                                           randomize_direction = True
-                                          ): # Este parâmetro será utilizado
+                                          ):
     try:
         chat_id = context.job.chat_id if hasattr(context, 'job') else context._chat_id
 
