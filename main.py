@@ -248,10 +248,12 @@ async def trading_task(context):
                 await binance.cancelar_todas_as_ordens(symbol, context)
 
                 df = await binance.obter_dados_candles(symbol=symbol, timeframe=timeframe)
+                
                 df = calcular_indicadores(df)
                 
-                if df.empty:
+                if df is None or df.empty:
                     logger.warning(f"DataFrame vazio para {symbol} no timeframe {timeframe}. Pulando para o próximo ativo.")
+                    #await context.bot.send_message(chat_id=chat_id, text=f"⚠️ DataFrame vazio para {symbol} no timeframe {timeframe}.")
                     continue
 
                 if not await gr.posicao_max(symbol, posicao_max):
@@ -265,7 +267,7 @@ async def trading_task(context):
                         amount = 0
 
                     tem_ordem_aberta = await gr.ultima_ordem_aberta(symbol)
-
+                    
                     if not tem_ordem_aberta:
                         if side != 'short' and verificar_long(df): #and tipo_operacao == 'LONG'
                             await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol} (LONG)...")

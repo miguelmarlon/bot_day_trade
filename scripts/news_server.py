@@ -12,6 +12,8 @@ import time
 import logging
 from typing import Optional, List, Dict, Any
 from urllib.parse import urlparse, urljoin
+import plotly.graph_objects as go
+import urllib.parse
 import asyncio
 import os
 import telegram
@@ -1169,7 +1171,7 @@ class EconomicEvents:
 
         for hora, grupo in eventos_agrupados:
             horario_formatado = pd.to_datetime(hora).strftime('%H:%M')
-            header = f"🗓️ *Calendário Econômico \- {horario_formatado}* 🗓️\n\n"
+            header = f"🗓️ *Calendário Econômico \\- {horario_formatado}* 🗓️\n\n"
             mensagens_por_hora.append(header)
 
             for index, evento in grupo.iterrows():
@@ -1232,7 +1234,7 @@ class TelegramNotifier:
         load_dotenv()
         
         # Prioriza os argumentos passados, mas usa o .env como fallback
-        self.token = token or os.getenv("TELEGRAM_BOT_TOKEN")
+        self.token = token or os.getenv("TELEGRAM_BOT_TOKEN_GRUPO")
         self.default_chat_id = chat_id or os.getenv("TELEGRAM_CHAT_ID")
 
         if not self.token:
@@ -1369,7 +1371,7 @@ class ScraperCoinranking:
             rank = linha.select_one("td:nth-of-type(2)").get_text(strip=True)
             nome = linha.select_one(".coin-profile__name").get_text(strip=True)
             simbolo = linha.select_one(".coin-profile__symbol").get_text(strip=True)
-            preco = linha.select_one("real-time-price").get_text(strip=True)
+            preco = linha.select_one("real-time-rate").get_text(strip=True)
             market_cap_tag = linha.select_one("td.hidden-tablet-landscape.hidden-mobile")
             market_cap = market_cap_tag.get_text(strip=True) if market_cap_tag else 'N/A'
             change_24h_tag = linha.select_one(".change__percentage")
@@ -1668,15 +1670,569 @@ class RsiRanking:
             print("ERRO AO INCIAR A FUNÇÃO DE CALCULAR O RSI")
             print(f"!!! TIPO DO ERRO: {type(e).__name__}")
             print(f"!!! MENSAGEM DO ERRO: {e}")
+
+class TradingViewSignals:
+    """
+    Classe para buscar sinais de trading do TradingView.
+    """
+    def __init__(self):
+        pass
+
+    # Métodos para buscar e processar sinais podem ser adicionados aqui.
+    def gerar_urls_tradingview(self, ticker: str):
+        """
+        Gera URLs da API do TradingView para diferentes intervalos de tempo.
+        Exemplo:
+            urls = gerar_urls_tradingview("NASDAQ:AAPL")
+            print(urls["1h"])
+        """
+        self.ticker = ticker
+
+        # Campos-base (iguais em todos os links)
+        base_fields = [
+            "Recommend.Other", "Recommend.All", "Recommend.MA", "RSI", "RSI[1]",
+            "Stoch.K", "Stoch.D", "Stoch.K[1]", "Stoch.D[1]",
+            "CCI20", "CCI20[1]",
+            "ADX", "ADX+DI", "ADX-DI", "ADX+DI[1]", "ADX-DI[1]",
+            "AO", "AO[1]", "AO[2]",
+            "Mom", "Mom[1]", "MACD.macd", "MACD.signal",
+            "Rec.Stoch.RSI", "Stoch.RSI.K",
+            "Rec.WR", "W.R", "Rec.BBPower", "BBPower",
+            "Rec.UO", "UO", "EMA10", "close", "SMA10", "EMA20", "SMA20",
+            "EMA30", "SMA30", "EMA50", "SMA50", "EMA100", "SMA100",
+            "EMA200", "SMA200",
+            "Rec.Ichimoku", "Ichimoku.BLine", "Rec.VWMA", "VWMA",
+            "Rec.HullMA9", "HullMA9",
+            "Pivot.M.Classic.R3", "Pivot.M.Classic.R2", "Pivot.M.Classic.R1",
+            "Pivot.M.Classic.Middle", "Pivot.M.Classic.S1", "Pivot.M.Classic.S2",
+            "Pivot.M.Classic.S3", "Pivot.M.Fibonacci.R3", "Pivot.M.Fibonacci.R2",
+            "Pivot.M.Fibonacci.R1", "Pivot.M.Fibonacci.Middle",
+            "Pivot.M.Fibonacci.S1", "Pivot.M.Fibonacci.S2", "Pivot.M.Fibonacci.S3",
+            "Pivot.M.Camarilla.R3", "Pivot.M.Camarilla.R2", "Pivot.M.Camarilla.R1",
+            "Pivot.M.Camarilla.Middle", "Pivot.M.Camarilla.S1",
+            "Pivot.M.Camarilla.S2", "Pivot.M.Camarilla.S3",
+            "Pivot.M.Woodie.R3", "Pivot.M.Woodie.R2", "Pivot.M.Woodie.R1",
+            "Pivot.M.Woodie.Middle", "Pivot.M.Woodie.S1", "Pivot.M.Woodie.S2",
+            "Pivot.M.Woodie.S3", "Pivot.M.Demark.R1", "Pivot.M.Demark.Middle",
+            "Pivot.M.Demark.S1"
+        ]
+
+        # Intervalos aceitos e seus sufixos oficiais
+        timeframes = {
+            "1m": "|1",
+            "5m": "|5",
+            "15m": "|15",
+            "1h": "|60",
+            "4h": "|240",
+            "1d": "",       # diário = sem sufixo
+            "1w": "|1W",
+            "1M": "|1M"
+        }
+
+        urls = {}
+
+        for label, tf_suffix in timeframes.items():
+            # adiciona o sufixo de timeframe após cada campo
+            fields_with_tf = [f"{field}{tf_suffix}" if tf_suffix else field for field in base_fields]
+            fields_encoded = urllib.parse.quote(",".join(fields_with_tf))
+            ticker_encoded = urllib.parse.quote(self.ticker)
+
+            urls[label] = (
+                f"https://scanner.tradingview.com/symbol?"
+                f"symbol={ticker_encoded}&fields={fields_encoded}"
+                f"&no_404=true&label-product=external-widgets"
+            )
+
+        return urls
+
+    def chamada_api_tradingview(self, api_url: str) -> dict:
+
+        """Faz a chamada à API do TradingView e retorna os dados como um dicionário."""
+
+        self.api_url = api_url
+        params = {}
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+
+        try:
+            response = requests.get(self.api_url, headers=headers, params=params, timeout=10)
+            response.raise_for_status()
+            
+            print("\n✅ Requisição bem-sucedida!")
+            print(f"Status Code: {response.status_code}")
+
+            # --- AQUI ESTÁ A LÓGICA CORRETA ---
+            print("\n--- Tentando decodificar a resposta como JSON ---")
+            try:
+                # 1. Tenta converter a resposta para JSON
+                dados = response.json()
+                
+                # Se a linha acima funcionar, o código continua aqui:
+                print("✅ Decodificado com sucesso!")
+                print("\n--- DADOS RECEBIDOS (JSON) ---")
+                
+                return dados
+            except json.JSONDecodeError:
+                # 2. Se a linha response.json() falhar, o código pula para cá:
+                print("⚠️ Falha ao decodificar. A resposta não é um JSON válido.")
+                print("\n--- CONTEÚDO BRUTO DA RESPOSTA (TEXTO) ---")
+                print(response.text)
+                return None
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Erro na Requisição: {e}")
+
+    def analisar_medias_moveis(self, dados, chave_timeframe):
+        """Analisa todas as médias móveis e retorna suas recomendações."""
+        self.dados = dados
+        self.chave_timeframe = chave_timeframe
+
+        recomendacoes = {}
+        preco_fechamento = self.dados.get(f"close{self.chave_timeframe}")
+
+        # Lista de todas as chaves de médias móveis no JSON
+        chaves_ma = [
+            f"EMA10{self.chave_timeframe}", f"SMA10{self.chave_timeframe}", f"EMA20{self.chave_timeframe}", f"SMA20{self.chave_timeframe}",
+            f"EMA30{self.chave_timeframe}", f"SMA30{self.chave_timeframe}", f"EMA50{self.chave_timeframe}", f"SMA50{self.chave_timeframe}",
+            f"EMA100{self.chave_timeframe}", f"SMA100{self.chave_timeframe}", f"EMA200{self.chave_timeframe}", f"SMA200{self.chave_timeframe}",
+            f"HullMA9{self.chave_timeframe}", f"VWMA{self.chave_timeframe}"
+        ]
+
+        for chave in chaves_ma:
+            if chave in self.dados:
+                valor_ma = self.dados[chave]
+                if preco_fechamento > valor_ma:
+                    recomendacoes[chave] = "Compra"
+                else:
+                    recomendacoes[chave] = "Venda"
         
+        return recomendacoes
+
+    def analisar_osciladores(self, dados, chave_timeframe):
+        """Analisa os principais osciladores e retorna suas recomendações."""
+
+        self.dados = dados
+        self.chave_timeframe = chave_timeframe
+        recomendacoes = {}
+
+        # 1. RSI (Índice de Força Relativa)
+        if f"RSI{self.chave_timeframe}" in self.dados:
+            rsi = self.dados[f"RSI{self.chave_timeframe}"]
+            if rsi < 30:
+                recomendacoes["RSI"] = "Compra"
+            elif rsi > 70:
+                recomendacoes["RSI"] = "Venda"
+            else:
+                recomendacoes["RSI"] = "Neutro"
+
+        # 2. Estocástico (Stoch.K)
+        if f"Stoch.K{self.chave_timeframe}" in self.dados:
+            stoch_k = self.dados[f"Stoch.K{self.chave_timeframe}"]
+            if stoch_k < 20:
+                recomendacoes["Stoch.K"] = "Compra"
+            elif stoch_k > 80:
+                recomendacoes["Stoch.K"] = "Venda"
+            else:
+                recomendacoes["Stoch.K"] = "Neutro"
+
+        # 3. CCI (Índice de Canal de Commodities)
+        if f"CCI20{self.chave_timeframe}" in self.dados:
+            cci = self.dados[f"CCI20{self.chave_timeframe}"]
+            if cci < -100:
+                recomendacoes["CCI20"] = "Compra"
+            elif cci > 100:
+                recomendacoes["CCI20"] = "Venda"
+            else:
+                recomendacoes["CCI20"] = "Neutro"
+                
+        # 4. ADX (Índice Direcional Médio)
+        if f"ADX{self.chave_timeframe}" in self.dados and f"ADX+DI{self.chave_timeframe}" in self.dados and f"ADX-DI{self.chave_timeframe}" in self.dados:
+            adx = self.dados[f"ADX{self.chave_timeframe}"]
+            adx_plus = self.dados[f"ADX+DI{self.chave_timeframe}"]
+            adx_minus = self.dados[f"ADX-DI{self.chave_timeframe}"]
+            if adx > 25:
+                if adx_plus > adx_minus:
+                    recomendacoes["ADX"] = "Compra"
+                else:
+                    recomendacoes["ADX"] = "Venda"
+            else:
+                recomendacoes["ADX"] = "Neutro"
+
+        # 5. Awesome Oscillator (AO)
+        if f"AO{self.chave_timeframe}" in self.dados:
+            ao = self.dados[f"AO{self.chave_timeframe}"]
+            if ao > 0 and self.dados.get(f"AO[1]{self.chave_timeframe}", 0) < ao: # Verifica se está subindo
+                recomendacoes["AO"] = "Compra"
+            elif ao < 0 and self.dados.get(f"AO[1]{self.chave_timeframe}", 0) > ao: # Verifica se está caindo
+                recomendacoes["AO"] = "Venda"
+            else:
+                recomendacoes["AO"] = "Neutro"
+
+        # 6. Momentum (Mom)
+        if f"Mom{self.chave_timeframe}" in self.dados:
+            mom = self.dados[f"Mom{self.chave_timeframe}"]
+            if mom > 0:
+                recomendacoes["Mom"] = "Compra"
+            else:
+                recomendacoes["Mom"] = "Venda"
+
+        # 7. Williams %R (W.R)
+        if f"W.R{self.chave_timeframe}" in self.dados:
+            wr = self.dados[f"W.R{self.chave_timeframe}"]
+            if wr < -80:
+                recomendacoes["W.R"] = "Compra"
+            elif wr > -20:
+                recomendacoes["W.R"] = "Venda"
+            else:
+                recomendacoes["W.R"] = "Neutro"
+                
+        return recomendacoes
+
+    def analisar_tendencia(self, dados, chave_timeframe):
+        """Analisa indicadores de tendência como MACD e Ichimoku."""
+        self.dados = dados
+        self.chave_timeframe = chave_timeframe
+        
+        recomendacoes = {}
+        preco_fechamento = self.dados.get(f"close{self.chave_timeframe}")
+
+        # 1. MACD
+        if f"MACD.macd{self.chave_timeframe}" in self.dados and f"MACD.signal{self.chave_timeframe}" in self.dados:
+            macd_line = self.dados[f"MACD.macd{self.chave_timeframe}"]
+            signal_line = self.dados[f"MACD.signal{self.chave_timeframe}"]
+            if macd_line > signal_line:
+                recomendacoes["MACD"] = "Compra"
+            else:
+                recomendacoes["MACD"] = "Venda"
+        
+        # 2. Ichimoku (Base Line)
+        if f"Ichimoku.BLine{self.chave_timeframe}" in self.dados and preco_fechamento:
+            bline = self.dados[f"Ichimoku.BLine{self.chave_timeframe}"]
+            if preco_fechamento > bline:
+                recomendacoes["Ichimoku"] = "Compra"
+            else:
+                recomendacoes["Ichimoku"] = "Venda"
+
+        return recomendacoes
+
+    def obter_recomendacao_final(self, pontuacao):
+        """Traduz a pontuação final em uma recomendação de texto."""
+        self.pontuacao = pontuacao
+
+        if self.pontuacao < -0.5:
+            return "Venda Forte"
+        elif -0.5 <= self.pontuacao < -0.1:
+            return "Venda"
+        elif -0.1 <= self.pontuacao <= 0.1:
+            return "Neutro"
+        elif 0.1 < self.pontuacao <= 0.5:
+            return "Compra"
+        else:
+            return "Compra Forte"
+
+    def gerar_analise_completa(self, dados, timeframe="1d"):
+        """
+        Executa a análise completa de todos os indicadores e gera um resumo final.
+        """
+        self.dados = dados
+        self.timeframe = timeframe
+
+        timeframes = {
+            "1m": "|1",
+            "5m": "|5",
+            "15m": "|15",
+            "1h": "|60",
+            "4h": "|240",
+            "1d": "",    # padrão
+            "1w": "|1W",
+            "1M": "|1M"   # mês
+        }
+        chave_timeframe = timeframes.get(self.timeframe, "")
+        # Junta os resultados de todas as funções de análise
+        resultados_individuais = {}
+        resultados_individuais.update(self.analisar_medias_moveis(self.dados, chave_timeframe))
+        resultados_individuais.update(self.analisar_osciladores(self.dados, chave_timeframe))
+        resultados_individuais.update(self.analisar_tendencia(self.dados, chave_timeframe))
+
+        # Contagem dos sinais
+        contagem = {
+            "Compra": 0,
+            "Venda": 0,
+            "Neutro": 0
+        }
+        
+        # Pontuação para o cálculo final
+        pontuacao = 0
+        
+        for rec in resultados_individuais.values():
+            if rec == "Compra":
+                contagem["Compra"] += 1
+                pontuacao += 1
+            elif rec == "Venda":
+                contagem["Venda"] += 1
+                pontuacao -= 1
+            else: # Neutro
+                contagem["Neutro"] += 1
+                # pontuação += 0 (não muda nada)
+
+        total_indicadores = len(resultados_individuais)
+        if total_indicadores == 0:
+            return None # Retorna nada se não houver indicadores
+
+        # Normaliza a pontuação para ficar entre -1 e 1
+        pontuacao_final = pontuacao / total_indicadores
+        
+        recomendacao_final = self.obter_recomendacao_final(pontuacao_final)
+        
+        return {
+            "contagem": contagem,
+            "pontuacao_final": pontuacao_final,
+            "recomendacao_final": recomendacao_final
+        }
+
+    def criar_grafico_medidor(self, analise, simbolo_ativo: str, timeframe: str):
+        """
+        Cria um gráfico de medidor (gauge) com base na análise técnica.
+        Usa matplotlib como fallback se Plotly falhar.
+
+        Args:
+            analise (dict): O dicionário de resultados da função gerar_analise_completa.
+            simbolo_ativo (str): O nome do ativo para exibir no título (ex: "AAPL").
+        """
+        self.analise = analise
+        self.simbolo_ativo = simbolo_ativo
+        self.timeframe = timeframe
+        print(f'gerar gráfico para {self.simbolo_ativo} no timeframe {self.timeframe}')
+        nome_ativo = self.simbolo_ativo.split(":")[1]
+
+        pontuacao = self.analise["pontuacao_final"]
+        contagem = self.analise["contagem"]
+        recomendacao_texto = self.analise["recomendacao_final"]
+
+        # Cria o diretório se não existir
+        os.makedirs('outputs/images', exist_ok=True)
+        simbolo_limpo = self.simbolo_ativo.replace(":", "_").replace("/", "_")
+        nome_arquivo = f"./outputs/images/analise_tecnica_{simbolo_limpo}.png"
+        
+        print("\nTentando gerar gráfico com Plotly...")
+        try:
+            valor_mapeado = (pontuacao + 1) * 50
+            titulo_grafico = (
+                f"<b>Análise Técnica para {nome_ativo} {self.timeframe}</b><br>"
+                f"<span style='font-size: 0.8em; color: gray;'>"
+                f"Venda: {contagem['Venda']} | Neutro: {contagem['Neutro']} | Compra: {contagem['Compra']}"
+                f"</span>"
+            )
+
+            fig = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=valor_mapeado,
+                number={'font': {'size': 30}},
+                title={'text': recomendacao_texto, 'font': {'size': 20}},
+                gauge={
+                    'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                    'bar': {'color': "rgba(0,0,0,0)"},
+                    'bgcolor': "white",
+                    'borderwidth': 2,
+                    'bordercolor': "gray",
+                    'steps': [
+                        {'range': [0, 20], 'color': '#d14f4f'},
+                        {'range': [20, 40], 'color': '#ff7c7c'},
+                        {'range': [40, 60], 'color': '#E8E8E8'},
+                        {'range': [60, 80], 'color': '#7cff7c'},
+                        {'range': [80, 100], 'color': '#32b232'}
+                    ],
+                    'threshold': {
+                        'line': {'color': "black", 'width': 7},
+                        'thickness': 0.9,
+                        'value': valor_mapeado
+                    }
+                }))
+
+            fig.update_layout(
+                title={'text': titulo_grafico, 'x': 0.5, 'y': 0.95, 'font': {'size': 24}},
+                font={'color': "black", 'family': "Arial"}
+            )
+            
+            print('Nome do arquivo gerado:', nome_arquivo)
+            
+            # Salva com timeout para evitar travamento
+            fig.write_image(nome_arquivo, width=800, height=600, engine="kaleido")
+            print("Plotly: comando write_image executado")
+            
+            # Verifica se arquivo foi criado
+            if os.path.exists(nome_arquivo):
+                print(f"Gráfico Plotly salvo com sucesso: '{nome_arquivo}'")
+                return nome_arquivo
+                
+        except Exception as e:
+            print(f"Plotly falhou: {e}")
+            print("Tentando com matplotlib como backup...")
+            
+        # Fallback para matplotlib se Plotly falhar
+        try:
+            import matplotlib.pyplot as plt
+            import matplotlib.patches as patches
+            import numpy as np
+            
+            fig, ax = plt.subplots(figsize=(10, 8))
+            
+            # Cria um medidor circular colorido com gradiente
+            theta = (pontuacao + 1) * 90 - 90  # Converte para ângulo (-90 a 90 graus)
+            
+            # Desenha arcos coloridos para simular um medidor com gradiente
+            # Arco vermelho (parte inferior esquerda) - Venda forte
+            arc_red_strong = patches.Arc((0.5, 0.5), 0.8, 0.8, angle=0, theta1=-90, theta2=-54, 
+                                       linewidth=20, color='#d14f4f')
+            ax.add_patch(arc_red_strong)
+            
+            # Arco vermelho claro - Venda
+            arc_red_light = patches.Arc((0.5, 0.5), 0.8, 0.8, angle=0, theta1=-54, theta2=-18, 
+                                      linewidth=20, color='#ff7c7c')
+            ax.add_patch(arc_red_light)
+            
+            # Arco cinza - Neutro
+            arc_neutral = patches.Arc((0.5, 0.5), 0.8, 0.8, angle=0, theta1=-18, theta2=18, 
+                                    linewidth=20, color='#E8E8E8')
+            ax.add_patch(arc_neutral)
+            
+            # Arco verde claro - Compra
+            arc_green_light = patches.Arc((0.5, 0.5), 0.8, 0.8, angle=0, theta1=18, theta2=54, 
+                                        linewidth=20, color='#7cff7c')
+            ax.add_patch(arc_green_light)
+            
+            # Arco verde forte (parte superior direita) - Compra forte
+            arc_green_strong = patches.Arc((0.5, 0.5), 0.8, 0.8, angle=0, theta1=54, theta2=90, 
+                                         linewidth=20, color='#32b232')
+            ax.add_patch(arc_green_strong)
+            
+            # Determina a cor do ponteiro baseada na pontuação
+            if pontuacao < -0.5:
+                cor_ponteiro = '#8B0000'  # Vermelho escuro
+            elif pontuacao < -0.1:
+                cor_ponteiro = '#DC143C'  # Vermelho
+            elif pontuacao <= 0.1:
+                cor_ponteiro = '#696969'  # Cinza escuro
+            elif pontuacao <= 0.5:
+                cor_ponteiro = '#7cff7c'  # Verde
+            else:
+                cor_ponteiro = '#32b232'  # Verde escuro
+                
+            # Desenha o ponteiro
+            import math
+            x_end = 0.5 + 0.35 * math.cos(math.radians(theta))
+            y_end = 0.5 + 0.35 * math.sin(math.radians(theta))
+            ax.plot([0.5, x_end], [0.5, y_end], color=cor_ponteiro, linewidth=8)
+            ax.plot(0.5, 0.5, 'ko', markersize=12)
+            
+            # # Adiciona marcações de texto nas extremidades
+            # ax.text(0.15, 0.35, 'VENDA\nFORTE', ha='center', va='center', fontsize=10, 
+            #        weight='bold', color='#d14f4f', rotation=45)
+            # ax.text(0.85, 0.35, 'COMPRA\nFORTE', ha='center', va='center', fontsize=10, 
+            #        weight='bold', color='#32b232', rotation=-45)
+            # ax.text(0.5, 0.15, 'NEUTRO', ha='center', va='center', fontsize=10, 
+            #        weight='bold', color='#696969')
+            
+            # Adiciona texto principal
+            ax.text(0.5, 0.4, recomendacao_texto, ha='center', va='center', fontsize=18, 
+                   weight='bold', color=cor_ponteiro)
+            ax.text(0.5, 0.3, f'Venda: {contagem["Venda"]} | Neutro: {contagem["Neutro"]} | Compra: {contagem["Compra"]}', 
+                   ha='center', va='center', fontsize=12, weight='bold')
+            
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.set_aspect('equal')
+            ax.axis('off')
+            ax.set_title(f'Análise Técnica - {nome_ativo} ({self.timeframe})', fontsize=20, weight='bold', pad=20)
+            
+            plt.tight_layout()
+            plt.savefig(nome_arquivo, dpi=200, bbox_inches='tight', facecolor='white')
+            plt.close()
+            
+            print(f"Gráfico matplotlib salvo com sucesso: '{nome_arquivo}'")
+            return nome_arquivo
+            
+        except Exception as e:
+            print(f"Matplotlib também falhou: {e}")
+            print("Retornando None - nenhum gráfico foi gerado")
+            return None
+
+    def run_server(self, timeframe="1d"):
+        """
+        Executa o servidor para exibir a análise técnica em um gráfico de medidor.
+        """
+        
+        self.timeframe = timeframe
+        resultados = {}
+        textos_analise = []
+        
+        for ticker in ["BINANCE:BTCUSDT", "BINANCE:ETHUSDT"]:
+            
+            urls = self.gerar_urls_tradingview(ticker)
+            api = urls.get(self.timeframe)
+
+            if not api:
+                print(f"Timeframe '{self.timeframe}' não suportado.")
+                continue  # Continua para o próximo ticker
+
+            dados = self.chamada_api_tradingview(api)
+            if not dados:
+                print(f"Falha ao obter dados da API do TradingView para {ticker}.")
+                continue  # Continua para o próximo ticker
+
+            analise = self.gerar_analise_completa(dados, self.timeframe)
+            if not analise:
+                print(f"Nenhum indicador disponível para análise de {ticker}.")
+                continue  # Continua para o próximo ticker
+
+            texto_analise = f"Análise Técnica para {ticker} no timeframe {self.timeframe}:\n"
+            texto_analise += f"Sinais de Venda:   {analise['contagem']['Venda']}\n"
+            texto_analise += f"Sinais de Neutro:  {analise['contagem']['Neutro']}\n"
+            texto_analise += f"Sinais de Compra:  {analise['contagem']['Compra']}\n"
+            texto_analise += f"Pontuação Final: {analise['pontuacao_final']:.4f}\n"
+            texto_analise += f"Recomendação Final: {analise['recomendacao_final']}\n"
+
+            resultados[ticker] = {
+                "texto_analise": texto_analise,
+                "sinais_venda": analise['contagem']['Venda'],
+                "sinais_neutro": analise['contagem']['Neutro'],
+                "sinais_compra": analise['contagem']['Compra'],
+                "pontuacao_final": analise['pontuacao_final'],
+                "recomendacao_final": analise['recomendacao_final'],
+                "analise_completa": analise
+            }
+            
+            textos_analise.append(texto_analise)
+
+        if resultados:
+            # Encontra o ticker com maior pontuação
+            ticker_maior = max(resultados.keys(), key=lambda k: resultados[k]['pontuacao_final'])
+            maior_pontuacao = resultados[ticker_maior]['pontuacao_final']
+            
+            # Encontra o ticker com menor pontuação
+            ticker_menor = min(resultados.keys(), key=lambda k: resultados[k]['pontuacao_final'])
+            menor_pontuacao = resultados[ticker_menor]['pontuacao_final']
+
+            # Cria gráfico para cada ticker
+            arquivo_maior = self.criar_grafico_medidor(resultados[ticker_maior]['analise_completa'], ticker_maior, self.timeframe)
+            arquivo_menor = self.criar_grafico_medidor(resultados[ticker_menor]['analise_completa'], ticker_menor, self.timeframe)
+
+            # Retorna todos os textos de análise concatenados com os arquivos
+            texto_completo = "\n\n".join(textos_analise) if textos_analise else "Nenhuma análise foi gerada."
+            return texto_completo, arquivo_maior, ticker_maior, arquivo_menor, ticker_menor
+        else:
+            # Se não há resultados, retorna valores padrão
+            return "Nenhuma análise foi gerada.", None, None, None, None
+
 async def main():
     """Função principal que orquestra todo o processo."""
     print("Executando o processo de notícias e notificação...\n")
     
     try:
-        # # Inicializa o notificador do Telegram
+        # # # Inicializa o notificador do Telegram
         notifier = TelegramNotifier()
 
+        # ACERTAR ESSE PROCESSO
         # PROCESSO 1 - Verifica eventos importantes
         events_client = EconomicEvents()
         mensagem_eventos_economicos = events_client.gerar_relatório_telegram()
@@ -1686,7 +2242,7 @@ async def main():
         heatmap = HeatMap()
         heatmap.create_crypto_treemap()
         await notifier.enviar_imagem()
-    
+        
         # PROCESSO 3 - verifica top gainers e losers
         tipo = ['gainers', 'losers']
         for t in tipo:
@@ -1700,6 +2256,7 @@ async def main():
             print(relatorio_final)
             await notifier.enviar_mensagem(relatorio_final)
 
+        
         # PROCESSO 4 - Captura e envia o índice "Fear & Greed" e envia a mensagem
         feargreed = FearGreedIndex()
         mensagem = feargreed.obter_mensagem_formatada()
@@ -1710,7 +2267,16 @@ async def main():
         mensagem_rsi = rsi.calcular_rsi()
         await notifier.enviar_mensagem(mensagem_rsi)
 
-        # PROCESSO 6 - Verifica e envia notícias no site
+        # PROCESSO 6 - Envia a análise técnica do TradingView
+        signais = TradingViewSignals()
+        _ , arquivo_maior, ticker_maior, arquivo_menor, ticker_menor = signais.run_server(timeframe="1d")
+        # Envia as imagens dos gráficos apenas se foram criadas
+        if arquivo_maior and ticker_maior:
+            await notifier.enviar_imagem(caminho_imagem=arquivo_maior, legenda=f"Análise Técnica - {ticker_maior.split(':')[1]}")
+        if arquivo_menor and ticker_menor:
+            await notifier.enviar_imagem(caminho_imagem=arquivo_menor, legenda=f"Análise Técnica - {ticker_menor.split(':')[1]}")
+
+        # PROCESSO 7 - Verifica e envia notícias no site
         # Configurações do seu scraper do site Cointelegraph
         maximo_noticias = 30
         limite_horas_recentes = 24
@@ -1731,14 +2297,18 @@ async def main():
                 time.sleep(60)
         else:
             logger.info("Nenhuma notícia encontrada para enviar.")
-
-        # PROCESSO 7 - Cria uma instância do processador de notícias do site Beincrypto
+        
+        # ACERTAR ESSE PROCESSO
+        
+        # PROCESSO 8 - Cria uma instância do processador de notícias do site Beincrypto
         scraper = ScraperBeincrypto()
         dados_de_hoje = scraper.run(somente_hoje=True, limit=1)
-        for n in dados_de_hoje:
-            await notifier.enviar_mensagem(n['resumo'])
-            time.sleep(60)
-
+        if dados_de_hoje:
+            for n in dados_de_hoje:
+                await notifier.enviar_mensagem(n['resumo'])
+                time.sleep(60)
+        else:
+            logger.info("Nenhuma notícia do Beincrypto encontrada para enviar.")
         print("\nProcesso finalizado com sucesso!")
 
     except ValueError as e:

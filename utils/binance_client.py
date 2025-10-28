@@ -62,11 +62,42 @@ class BinanceHandler:
         Busca os dados de candles para um par de Futuros.
         Agora é um método de instância que usa self.client.
         """
+        MAX_TENTATIVAS = 3
+        ATRASO_ENTRE_TENTATIVAS = 5  # segundos
 
-        bars = await self.client.fetch_ohlcv(symbol=symbol, timeframe=timeframe, limit=limit)
-        df_candles = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
-        df_candles['time'] = pd.to_datetime(df_candles['time'], unit='ms', utc=True).map(lambda x: x.tz_convert('America/Sao_Paulo'))
-        return df_candles
+        for tentativa in range(MAX_TENTATIVAS):
+            try:
+                bars = await self.client.fetch_ohlcv(symbol=symbol, timeframe=timeframe, limit=limit)
+                if not bars:
+                    logging.warning(f"Nenhum dado de candle retornado para {symbol} no timeframe {timeframe}. A API retornou uma lista vazia.")
+                    # Retorna um DataFrame vazio para manter a consistência do tipo
+                    return pd.DataFrame(columns=['time', 'open', 'high', 'low', 'close', 'volume'])
+
+                # 3. Se tudo deu certo, processa e retorna o DataFrame
+                df_candles = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
+                df_candles['time'] = pd.to_datetime(df_candles['time'], unit='ms', utc=True).map(lambda x: x.tz_convert('America/Sao_Paulo'))
+                
+                logging.info(f"Dados para {symbol} obtidos com sucesso na tentativa {tentativa + 1}.")
+                return df_candles
+            
+            except (ccxt.NetworkError, ccxt.RequestTimeout, ccxt.ExchangeNotAvailable) as e:
+                # Erros de rede ou temporários, vale a pena tentar de novo
+                logging.warning(f"Erro de rede ao buscar {symbol} (tentativa {tentativa + 1}/{MAX_TENTATIVAS}): {e}")
+            
+            except ccxt.BadSymbol as e:
+                # Erro de símbolo inválido. Não adianta tentar de novo.
+                logging.error(f"Erro permanente ao buscar {symbol}: Símbolo não encontrado na corretora. {e}")
+                return None # Retorna None imediatamente
+
+            except Exception as e:
+                # Captura outros erros inesperados
+                logging.error(f"Erro inesperado ao buscar {symbol} (tentativa {tentativa + 1}/{MAX_TENTATIVAS}): {e}")
+
+            if tentativa < MAX_TENTATIVAS - 1:
+                logging.info(f"Aguardando {ATRASO_ENTRE_TENTATIVAS} segundos para a próxima tentativa...")
+                await asyncio.sleep(ATRASO_ENTRE_TENTATIVAS)
+        logging.error(f"Falha ao buscar dados de candles para {symbol} após {MAX_TENTATIVAS} tentativas.")
+        return None  
 
     async def abrir_short(self, symbol, posicao_max, context):
 

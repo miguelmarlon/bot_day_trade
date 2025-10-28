@@ -487,7 +487,6 @@ class GerenciamentoRiscoAsync:
                     take_profit_price = entry_price * (1 - take_profit)
                 
                 print(f"[{symbol}] Nenhuma ordem TAKE_PROFIT_MARKET ativa encontrada. Recalculando take_profit_price para: {take_profit_price:.8f}")
-            #-------- ACERTAR ESSA LÓGICA --------
             
             if take_profit_price is None:
                 print(f"[{symbol}] Nenhuma ordem de Take Profit válida encontrada. Não é possível gerenciar stops dinâmicos.")

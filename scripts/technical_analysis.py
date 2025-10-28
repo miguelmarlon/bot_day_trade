@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import pandas_ta as ta
 from ta.momentum import RSIIndicator
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def calculate_period_pivot_points(df: pd.DataFrame):
         """
@@ -60,47 +62,76 @@ def calculate_bollinger_bands(data: pd.DataFrame, length=20, std=2)-> pd.DataFra
     return data
 
 def calcular_indicadores(df_candles):
-    rsi = RSIIndicator(df_candles['close'], window=14)
-    df_candles['RSI'] = rsi.rsi()
+    """
+    Calcula os indicadores técnicos de forma robusta para o DataFrame de candles,
+    incluindo tratamento de erros e validações.
+    Retorna o DataFrame com os indicadores ou None em caso de erro.
+    """
+    if df_candles is None or df_candles.empty:
+        logging.warning("Input para 'calcular_indicadores' é nulo ou vazio.")
+        return None
 
-    macd = df_candles.ta.macd(close='close', fast=12, slow=26, signal=9, append=True)
+    required_cols = ['high', 'low', 'close', 'volume']
+    if not all(col in df_candles.columns for col in required_cols):
+        logging.error(f"Input não contém as colunas necessárias: {required_cols}")
+        return None
     
-    df_candles['EMA_20'] = ta.ema(df_candles['close'], length=20)
+    # O indicador com maior período é 200, então precisamos de pelo menos 200 linhas.
+    LONGEST_PERIOD = 200
+    if len(df_candles) < LONGEST_PERIOD:
+        logging.warning(f"Dados insuficientes. Necessário: {LONGEST_PERIOD} períodos, "
+                        f"Disponível: {len(df_candles)}.")
+        return None
     
-    df_candles['EMA_50'] = ta.ema(df_candles['close'], length=50)
-    
-    df_candles['EMA_200'] = ta.ema(df_candles['close'], length=200)
-    
-    df_candles['SMA_50'] = ta.sma(df_candles['close'], length=50)
+    try: 
+        df = df_candles.copy()
+        rsi = RSIIndicator(df_candles['close'], window=14)
+        df['RSI'] = rsi.rsi()
 
-    df_candles['SMA_200'] = ta.sma(df_candles['close'], length=200)
-    
-    df_candles['ATR'] = ta.atr(df_candles['high'], df_candles['low'], df_candles['close'], length=14)
-    
-    df_candles['CCI'] = ta.cci(df_candles['high'], df_candles['low'], df_candles['close'], length=20)
-    
-    df_candles['WILLIAMS_R'] = ta.willr(df_candles['high'], df_candles['low'], df_candles['close'], length=14)
-    
-    df_candles['Momentum'] = ta.mom(df_candles['close'], length=10)
-    
-    df_candles.ta.stoch(high=df_candles['high'], low=df_candles['low'], close=df_candles['close'], append=True)
-    # df_candles = pd.concat([df_candles, stoch])
-    #print(df_candles)
+        macd = df.ta.macd(close='close', fast=12, slow=26, signal=9, append=True)
+        
+        df['EMA_20'] = ta.ema(df['close'], length=20)
+        
+        df['EMA_50'] = ta.ema(df['close'], length=50)
+        
+        df['EMA_200'] = ta.ema(df['close'], length=200)
+        
+        df['SMA_50'] = ta.sma(df['close'], length=50)
 
-    pivot_levels_df = calculate_period_pivot_points(df_candles)
-    for col in pivot_levels_df.columns:
-        df_candles[col] = pivot_levels_df[col].iloc[0]
+        df['SMA_200'] = ta.sma(df['close'], length=200)
+        
+        df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+        
+        df['CCI'] = ta.cci(df['high'], df['low'], df['close'], length=20)
+        
+        df['WILLIAMS_R'] = ta.willr(df['high'], df['low'], df['close'], length=14)
+        
+        df['Momentum'] = ta.mom(df['close'], length=10)
+        
+        df.ta.stoch(high=df['high'], low=df['low'], close=df['close'], append=True)
+
+        pivot_levels_df = calculate_period_pivot_points(df)
+        for col in pivot_levels_df.columns:
+            df[col] = pivot_levels_df[col].iloc[0]
+
+        df.ta.mfi(high=df['high'], low=df['low'], close=df['close'], volume=df['volume'], append=True)
+
+        df = calculate_bollinger_bands(df)
+
+        df.bfill(inplace=True)
+        df.ffill(inplace=True) 
+        df.dropna(inplace=True)
+        if df.empty:
+            logging.warning("DataFrame ficou vazio após o cálculo e limpeza dos indicadores.")
+            return None
+        
+        return df
+    except Exception as e:
+        
+        logging.error(f"Falha inesperada ao calcular indicadores: {e}", exc_info=True)
+        
+        return None
     
-    df_candles.ta.mfi(high=df_candles['high'], low=df_candles['low'], close=df_candles['close'], volume=df_candles['volume'], append=True)
-
-    df_candles = calculate_bollinger_bands(df_candles)
-
-    df_candles.bfill(inplace=True)
-    df_candles.ffill(inplace=True) 
-    df_candles.dropna(inplace=True)
-    
-    return df_candles
-
 def verificar_long(df_candles):
     """Verifica as condições para abrir uma posição LONG"""
     if df_candles.iloc[-1]['RSI'] > 40 and df_candles.iloc[-1]['RSI'] < 75 and df_candles.iloc[-1]['EMA_20'] >= df_candles.iloc[-1]['close']:
