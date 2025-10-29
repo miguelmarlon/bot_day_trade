@@ -929,7 +929,7 @@ class EconomicEventsError(Exception):
 
 class EconomicEvents:
     DEFAULT_URL = 'https://economic-calendar.tradingview.com/events'
-    DEFAULT_COUNTRIES = ['US']
+    DEFAULT_COUNTRIES = ['US', 'BR']  # Mantém apenas US por ora, BR será testado separadamente
     DEFAULT_MAX_ATTEMPTS = 3
     DEFAULT_RETRY_DELAY_SECONDS = 5
     DEFAULT_REQUEST_TIMEOUT_SECONDS = 10 # Timeout para a requisição HTTP
@@ -1024,7 +1024,8 @@ class EconomicEvents:
         Returns:
             Optional[pd.DataFrame]: DataFrame com eventos, ou um DataFrame vazio se nenhum evento
                                    for encontrado. Colunas: ['title', 'indicator', 'actual',
-                                   'previous', 'forecast', 'importance', 'date', 'hora'].
+                                   'previous', 'forecast', 'importance', 'date', 'hora', 
+                                   'country', 'currency'].
                                    'date' e 'hora' estão em 'America/Sao_Paulo'.
 
         Raises:
@@ -1046,9 +1047,9 @@ class EconomicEvents:
             try:
                 response = requests.get(self.url, headers=headers, params=payload, timeout=self.request_timeout)
                 response.raise_for_status()
-
+                 
                 data = response.json()
-
+                
                 if 'result' not in data or not isinstance(data['result'], list):
                     # Este é um erro estrutural na resposta da API. Novas tentativas podem não ajudar.
                     print("Chave 'result' não encontrada ou formato inesperado na resposta da API.")
@@ -1067,31 +1068,70 @@ class EconomicEvents:
                     print(f"Colunas essenciais ausentes nos dados da API: {missing_cols}")
                     raise EconomicEventsError(f"Dados da API incompletos, colunas ausentes: {missing_cols}")
                 
-                # Filtrar por importância (se a coluna existir e for desejado)
-                # A lógica original filtrava df[df['importance'] == 1]. Vamos manter isso.
-                df = df[df['importance'] == 1].copy() # .copy() para evitar SettingWithCopyWarning
+                # Analisar distribuição de importância primeiro
+                unique_importances = sorted(df['importance'].unique())
+                print(f"Valores de importância encontrados: {unique_importances}")
+                
+                # Filtrar por importância - incluir eventos de alta (1) e média (0.5) importância
+                df_filtered = df[df['importance'].isin([1, 0.5])].copy()
+                
+                if df_filtered.empty:
+                    print("Nenhum evento encontrado com importância alta (1) ou média (0.5).")
+                    # Se não há eventos 1 ou 0.5, incluir eventos de importância 0 (que podem ser relevantes)
+                    df_filtered = df[df['importance'] >= 0].copy()
+                    if df_filtered.empty:
+                        print("Nenhum evento encontrado com importância >= 0. Incluindo eventos de menor importância...")
+                        # Como última opção, pegar os eventos de maior importância disponível
+                        max_importance = df['importance'].max()
+                        df_filtered = df[df['importance'] == max_importance].copy()
+                        print(f"Incluindo {len(df_filtered)} eventos com a maior importância disponível ({max_importance})")
+                        if df_filtered.empty:
+                            print("Nenhum evento encontrado para hoje.")
+                            return df_filtered
+                    else:
+                        print(f"Incluindo {len(df_filtered)} eventos com importância >= 0 (relevantes)")
+                else:
+                    print(f"Encontrados {len(df_filtered)} eventos de alta/média importância")
+                
+                df = df_filtered
+                print(f"Eventos encontrados: Alta importância: {len(df[df['importance'] == 1])}, Média importância: {len(df[df['importance'] == 0.5])}, Outros: {len(df[df['importance'] < 0.5])}")
 
-                if df.empty:
-                    print("Nenhum evento encontrado com importância == 1.")
-                    return df # Retorna DataFrame vazio se não houver eventos importantes
-
-                # Selecionar e reordenar colunas desejadas, garantindo que existam
-                desired_cols_output = ['title', 'indicator', 'actual', 'previous', 'forecast', 'importance', 'date']
-                cols_to_keep = [col for col in desired_cols_output if col in df.columns]
-                df = df[cols_to_keep]
-
-                # Tratamento de data/hora
+                # Tratamento de data/hora ANTES de selecionar colunas
                 # A API do TradingView retorna 'date' como string ISO 8601 em UTC (com Z)
-                df['date'] = pd.to_datetime(df['date'], errors='coerce', utc=True) # utc=True informa ao pandas
-                df.dropna(subset=['date'], inplace=True) # Remove linhas onde a data não pôde ser convertida
+                
+                # Forçar conversão explícita da série
+                df = df.copy() # Garantir que temos uma cópia para evitar warnings
+                date_series = pd.to_datetime(df['date'], errors='coerce', utc=True)
+                df['date'] = date_series
+                
+                # Remover valores NaT
+                df = df.dropna(subset=['date']).copy()
 
                 if df.empty:
                      print("Nenhum evento com data válida após conversão e remoção de NaT.")
                      return df
 
                 # Converter para o fuso horário de São Paulo e extrair a hora
-                df['date'] = df['date'].dt.tz_convert('America/Sao_Paulo')
-                df['hora'] = df['date'].dt.strftime('%H:%M:%S')
+                # Usar try/except para capturar qualquer problema
+                try:
+                    df['date'] = df['date'].dt.tz_convert('America/Sao_Paulo')
+                    df['hora'] = df['date'].dt.strftime('%H:%M:%S')
+                    print(f"Conversão de timezone bem-sucedida. Primeiro horário: {df['hora'].iloc[0]}")
+                except Exception as e:
+                    print(f"Erro na conversão de timezone: {e}")
+                    # Tentar conversão alternativa
+                    try:
+                        df['date'] = pd.to_datetime(df['date'], utc=True).dt.tz_convert('America/Sao_Paulo')
+                        df['hora'] = df['date'].dt.strftime('%H:%M:%S')
+                        print("Conversão alternativa bem-sucedida")
+                    except Exception as e2:
+                        print(f"Erro na conversão alternativa: {e2}")
+                        return pd.DataFrame()
+
+                # Selecionar e reordenar colunas desejadas APÓS processamento de datas
+                desired_cols_output = ['title', 'indicator', 'actual', 'previous', 'forecast', 'importance', 'date', 'hora', 'country', 'currency']
+                cols_to_keep = [col for col in desired_cols_output if col in df.columns]
+                df = df[cols_to_keep].copy()  # .copy() para evitar SettingWithCopyWarning
                 
                 print(f"Total de {len(df)} eventos econômicos importantes processados.")
                 return df
@@ -1157,7 +1197,6 @@ class EconomicEvents:
         # por sua versão escapada (ex: '.' se torna '\.')
         return re.sub(caracteres_reservados, r"\\\1", texto)
 
-
     def formatar_mensagem_telegram(self, df):
         """
         Formata um DataFrame de calendário econômico em uma mensagem 100% segura para o Telegram.
@@ -1168,30 +1207,55 @@ class EconomicEvents:
 
         mensagens_por_hora = []
         eventos_agrupados = df.groupby('hora')
-
+        print(f'Total de grupos de horário: {len(eventos_agrupados)}')
         for hora, grupo in eventos_agrupados:
-            horario_formatado = pd.to_datetime(hora).strftime('%H:%M')
+            # hora já é uma string formatada como '%H:%M:%S', vamos extrair apenas H:M
+            horario_formatado = hora[:5]  # Pega apenas HH:MM
             header = f"🗓️ *Calendário Econômico \\- {horario_formatado}* 🗓️\n\n"
             mensagens_por_hora.append(header)
 
             for index, evento in grupo.iterrows():
                 titulo = self.escapar_markdown(evento['title'].strip())
-                atual = self.escapar_markdown(evento['actual'])
-                projecao = self.escapar_markdown(evento['forecast'])
-                anterior = self.escapar_markdown(evento['previous'])
                 
-                icone_importancia = "🔴"
+                # Substituir "nan" por "Não informado"
+                atual = self.escapar_markdown(str(evento['actual']) if pd.notna(evento['actual']) else "Não informado")
+                projecao = self.escapar_markdown(str(evento['forecast']) if pd.notna(evento['forecast']) else "Não informado")
+                anterior = self.escapar_markdown(str(evento['previous']) if pd.notna(evento['previous']) else "Não informado")
+                
+                # Informações do país e moeda
+                pais = self.escapar_markdown(str(evento['country']) if pd.notna(evento['country']) else "N/A")
+                moeda = self.escapar_markdown(str(evento['currency']) if pd.notna(evento['currency']) else "N/A")
+                
+                # Mapear códigos de país para bandeiras
+                bandeiras_pais = {
+                    'US': '🇺🇸', 'BR': '🇧🇷', 'GB': '🇬🇧', 'DE': '🇩🇪', 
+                    'FR': '🇫🇷', 'JP': '🇯🇵', 'CA': '🇨🇦', 'AU': '🇦🇺',
+                    'CN': '🇨🇳', 'IT': '🇮🇹', 'ES': '🇪🇸', 'NL': '🇳🇱',
+                    'CH': '🇨🇭', 'SE': '🇸🇪', 'NO': '🇳🇴', 'DK': '🇩🇰'
+                }
+                bandeira = bandeiras_pais.get(pais, '🌍')
+                
+                # Definir ícone baseado na importância
+                if evento['importance'] == 1:
+                    icone_importancia = "🔴"  # Alta importância
+                    texto_importancia = "Alta"
+                elif evento['importance'] == 0.5:
+                    icone_importancia = "🟡"  # Média importância
+                    texto_importancia = "Média"
+                else:
+                    icone_importancia = "🟢"  # Baixa importância
+                    texto_importancia = "Baixa"
 
-                # !! CORREÇÃO FINAL APLICADA AQUI !!
-                # Usando o caractere 'Box Drawings Light Horizontal' que não é reservado.
+                # Separador visual
                 separador = "────────────────────\n"
 
                 info_evento = (
                     f"*{titulo}*\n"
+                    f"País: {bandeira} {pais} \\({moeda}\\)\n"
                     f"Resultado: *{atual}*\n"
                     f"Projeção: {projecao}\n"
                     f"Anterior: {anterior}\n"
-                    f"Importância: {icone_importancia}\n"
+                    f"Importância: {icone_importancia} {texto_importancia}\n"
                     f"{separador}"
                 )
                 mensagens_por_hora.append(info_evento)
@@ -1205,14 +1269,16 @@ class EconomicEvents:
             df_events_default = self.get_economic_events()
             if df_events_default is not None and not df_events_default.empty:
                 mensagem = self.formatar_mensagem_telegram(df_events_default)
-                print(mensagem)
+                print("Mensagem de eventos econômicos gerada com sucesso!")
                 return mensagem
             elif df_events_default is not None: # DataFrame vazio
                 print("Nenhum evento encontrado (Padrão).")
+                return None
         except EconomicEventsError as e:
             print(f"Erro ao buscar eventos (Padrão): {e}")
             if e.__cause__:
                 print(f"Causa original: {type(e.__cause__).__name__} - {e.__cause__}")
+            return None
 
 class TelegramNotifier:
     """
@@ -2232,71 +2298,70 @@ async def main():
         # # # Inicializa o notificador do Telegram
         notifier = TelegramNotifier()
 
-        # ACERTAR ESSE PROCESSO
         # PROCESSO 1 - Verifica eventos importantes
-        events_client = EconomicEvents()
-        mensagem_eventos_economicos = events_client.gerar_relatório_telegram()
-        await notifier.enviar_mensagem(mensagem_eventos_economicos)
+        # events_client = EconomicEvents()
+        # mensagem_eventos_economicos = events_client.gerar_relatório_telegram()
+        # if mensagem_eventos_economicos:
+        #     await notifier.enviar_mensagem(mensagem_eventos_economicos)
         
-        # PROCESSO 2 - cria o relatório Heatmap
-        heatmap = HeatMap()
-        heatmap.create_crypto_treemap()
-        await notifier.enviar_imagem()
+        # # PROCESSO 2 - cria o relatório Heatmap
+        # heatmap = HeatMap()
+        # heatmap.create_crypto_treemap()
+        # await notifier.enviar_imagem()
         
-        # PROCESSO 3 - verifica top gainers e losers
-        tipo = ['gainers', 'losers']
-        for t in tipo:
-            url = f"https://coinranking.com/coins/{t}"
+        # # PROCESSO 3 - verifica top gainers e losers
+        # tipo = ['gainers', 'losers']
+        # for t in tipo:
+        #     url = f"https://coinranking.com/coins/{t}"
             
-            gainers_losers = ScraperCoinranking(url=url)
+        #     gainers_losers = ScraperCoinranking(url=url)
             
-            relatorio_final = gainers_losers.gerar_relatorio_telegram()
+        #     relatorio_final = gainers_losers.gerar_relatorio_telegram()
 
-            print(f"\n--- MENSAGEM FINAL PRONTA PARA ENVIAR TIPO {t.upper()} ---")
-            print(relatorio_final)
-            await notifier.enviar_mensagem(relatorio_final)
+        #     print(f"\n--- MENSAGEM FINAL PRONTA PARA ENVIAR TIPO {t.upper()} ---")
+        #     print(relatorio_final)
+        #     await notifier.enviar_mensagem(relatorio_final)
 
-        
-        # PROCESSO 4 - Captura e envia o índice "Fear & Greed" e envia a mensagem
-        feargreed = FearGreedIndex()
-        mensagem = feargreed.obter_mensagem_formatada()
-        await notifier.enviar_mensagem(mensagem)
+        # # PROCESSO 4 - Captura e envia o índice "Fear & Greed" e envia a mensagem
+        # feargreed = FearGreedIndex()
+        # mensagem = feargreed.obter_mensagem_formatada()
+        # await notifier.enviar_mensagem(mensagem)
 
-        # PROCESSO 5 - Envia os maiores e menores RSI do dia
-        rsi = RsiRanking()
-        mensagem_rsi = rsi.calcular_rsi()
-        await notifier.enviar_mensagem(mensagem_rsi)
+        # # PROCESSO 5 - Envia os maiores e menores RSI do dia
+        # rsi = RsiRanking()
+        # mensagem_rsi = rsi.calcular_rsi()
+        # await notifier.enviar_mensagem(mensagem_rsi)
 
-        # PROCESSO 6 - Envia a análise técnica do TradingView
-        signais = TradingViewSignals()
-        _ , arquivo_maior, ticker_maior, arquivo_menor, ticker_menor = signais.run_server(timeframe="1d")
-        # Envia as imagens dos gráficos apenas se foram criadas
-        if arquivo_maior and ticker_maior:
-            await notifier.enviar_imagem(caminho_imagem=arquivo_maior, legenda=f"Análise Técnica - {ticker_maior.split(':')[1]}")
-        if arquivo_menor and ticker_menor:
-            await notifier.enviar_imagem(caminho_imagem=arquivo_menor, legenda=f"Análise Técnica - {ticker_menor.split(':')[1]}")
+        # # PROCESSO 6 - Envia a análise técnica do TradingView
+        # signais = TradingViewSignals()
+        # _ , arquivo_maior, ticker_maior, arquivo_menor, ticker_menor = signais.run_server(timeframe="1d")
+        # # Envia as imagens dos gráficos apenas se foram criadas
+        # if arquivo_maior and ticker_maior:
+        #     await notifier.enviar_imagem(caminho_imagem=arquivo_maior, legenda=f"Análise Técnica - {ticker_maior.split(':')[1]}")
+        # if arquivo_menor and ticker_menor:
+        #     await notifier.enviar_imagem(caminho_imagem=arquivo_menor, legenda=f"Análise Técnica - {ticker_menor.split(':')[1]}")
 
-        # PROCESSO 7 - Verifica e envia notícias no site
-        # Configurações do seu scraper do site Cointelegraph
-        maximo_noticias = 30
-        limite_horas_recentes = 24
+        # # PROCESSO 7 - Verifica e envia notícias no site
+        # # Configurações do seu scraper do site Cointelegraph
+        # maximo_noticias = 30
+        # limite_horas_recentes = 24
 
-        # Cria uma instância do processador de notícias do site Cointelegraph
-        processor = ScraperCointelegraph(
-            sitemap_url="https://cointelegraph.com/sitemap-google-news.xml",
-            max_news_to_process=maximo_noticias
-        )
-        resultados = processor.process_news(
-            output_format='list',
-            csv_filename='noticias_cripto_processadas.csv',
-            hours_limit=limite_horas_recentes
-        )
-        if resultados:
-            for r in resultados:
-                await notifier.enviar_mensagem(r)
-                time.sleep(60)
-        else:
-            logger.info("Nenhuma notícia encontrada para enviar.")
+        # # Cria uma instância do processador de notícias do site Cointelegraph
+        # processor = ScraperCointelegraph(
+        #     sitemap_url="https://cointelegraph.com/sitemap-google-news.xml",
+        #     max_news_to_process=maximo_noticias
+        # )
+        # resultados = processor.process_news(
+        #     output_format='list',
+        #     csv_filename='noticias_cripto_processadas.csv',
+        #     hours_limit=limite_horas_recentes
+        # )
+        # if resultados:
+        #     for r in resultados:
+        #         await notifier.enviar_mensagem(r)
+        #         time.sleep(60)
+        # else:
+        #     logger.info("Nenhuma notícia encontrada para enviar.")
         
         # ACERTAR ESSE PROCESSO
         
