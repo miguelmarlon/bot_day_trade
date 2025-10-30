@@ -765,21 +765,64 @@ class ScraperCointelegraph:
             print(f"    Erro inesperado ao processar {article_url} para extração de texto: {e}")
         return ""
 
+    def _load_processed_links(self, csv_filename):
+        """
+        Carrega os links já processados do arquivo CSV.
+        
+        Args:
+            csv_filename (str): Nome do arquivo CSV.
+            
+        Returns:
+            set: Conjunto com os links já processados.
+        """
+        processed_links = set()
+        
+        if not os.path.exists(csv_filename):
+            print(f"Arquivo '{csv_filename}' não existe ainda. Nenhum link processado anteriormente.")
+            return processed_links
+        
+        try:
+            with open(csv_filename, 'r', newline='', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    link = row.get('Link Original')
+                    if link:
+                        processed_links.add(link)
+            
+            print(f"Carregados {len(processed_links)} link(s) já processado(s) de '{csv_filename}'")
+        except Exception as e:
+            print(f"Erro ao carregar links processados de '{csv_filename}': {e}")
+        
+        return processed_links
+
     def _save_summaries_to_csv(self, summaries, csv_filename):
-        """Salva uma lista de resumos em um arquivo CSV."""
+        """
+        Salva uma lista de resumos em um arquivo CSV de forma incremental.
+        Se o arquivo já existe, adiciona apenas os novos resumos.
+        """
         if not summaries:
             print("Nenhum resumo para salvar em CSV.")
             return
             
         print(f"\nSalvando resumos em {csv_filename}...")
+        
+        fieldnames = ['Titulo', 'Resumo', 'Link Original', 'Fonte', 'Data Publicacao', 'Data Extracao', 'Sentimento']
+        
         try:
-            with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
-                # Corrigindo para corresponder às chaves do dicionário summary_data
-                fieldnames = ['Titulo', 'Resumo', 'Link Original', 'Fonte', 'Data Publicacao', 'Data Extracao', 'Sentimento']
+            # Verifica se o arquivo já existe
+            file_exists = os.path.exists(csv_filename)
+            
+            # Abre o arquivo em modo 'append' se existir, caso contrário em modo 'write'
+            mode = 'a' if file_exists else 'w'
+            
+            with open(csv_filename, mode, newline='', encoding='utf-8') as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                writer.writeheader()
+                
+                # Escreve o cabeçalho apenas se o arquivo não existia
+                if not file_exists:
+                    writer.writeheader()
+                
                 for summary in summaries:
-                    # Mapeamento para garantir que as chaves do CSV sejam preenchidas corretamente
                     writer.writerow({
                         'Titulo': summary.get('titulo'),
                         'Resumo': summary.get('resumo'),
@@ -787,9 +830,11 @@ class ScraperCointelegraph:
                         'Fonte': summary.get('fonte'),
                         'Data Publicacao': summary.get('data_publicacao'),
                         'Data Extracao': summary.get('data_extracao'),
-                        'Sentimento': summary.get('sentimento', "N/A") # Pega 'sentimento' ou default
+                        'Sentimento': summary.get('sentimento', "N/A")
                     })
-            print(f"Resumos salvos com sucesso em {csv_filename}")
+            
+            action = "adicionados ao" if file_exists else "salvos em"
+            print(f"Resumos {action} arquivo '{csv_filename}' com sucesso!")
         except IOError as e:
             print(f"Erro ao salvar arquivo CSV: {e}")
         except Exception as e:
@@ -812,6 +857,89 @@ class ScraperCointelegraph:
             print(f"Data de Extração (Script): {summary.get('data_extracao', 'N/A')}")
             print("---")
 
+    def select_news(self, csv_filename='noticias_cripto_processadas.csv'):
+        """
+        Seleciona notícias do CSV publicadas no dia atual com base no sentimento.
+        Retorna uma lista de dicionários com resumo, data e sentimento das notícias do dia com sentimento >= 7 ou <= 3.
+        
+        Args:
+            csv_filename (str): Nome do arquivo CSV com as notícias processadas.
+            
+        Returns:
+            list: Lista de dicionários contendo {'resumo': str, 'data': str, 'sentimento': float}.
+        """
+        MEU_CHAT_ID_PESSOAL = os.getenv("MEU_CHAT_ID_PESSOAL")
+
+        if not os.path.exists(csv_filename):
+            print(f"Arquivo '{csv_filename}' não encontrado.")
+            return []
+        
+        # Obter a data atual em UTC (formato usado no CSV)
+        hoje_utc = datetime.now(timezone.utc).date()
+        print(f"Filtrando notícias do dia: {hoje_utc}")
+        
+        selected_news = []
+        notifier = TelegramNotifier(chat_id=MEU_CHAT_ID_PESSOAL)
+        total_noticias_hoje = 0
+        
+        try:
+            with open(csv_filename, 'r', newline='', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                
+                for row in reader:
+                    data_publicacao_str = row.get('Data Publicacao', '')
+                    sentimento_str = row.get('Sentimento', 'N/A')
+                    resumo = row.get('Resumo', '')
+                    
+                    # Primeiro filtro: verificar se a notícia é do dia atual
+                    try:
+                        # A data vem no formato ISO: '2025-10-29T18:23:41.000Z'
+                        if data_publicacao_str:
+                            # Extrai apenas a parte da data (YYYY-MM-DD)
+                            data_noticia = datetime.fromisoformat(data_publicacao_str.replace('Z', '+00:00')).date()
+                            
+                            # Verifica se a notícia é do dia atual
+                            if data_noticia != hoje_utc:
+                                continue  # Pula notícias de outros dias
+                            
+                            total_noticias_hoje += 1
+                    except (ValueError, TypeError) as e:
+                        print(f"Erro ao processar data '{data_publicacao_str}': {e}")
+                        continue
+                    
+                    # Segundo filtro: verificar o sentimento
+                    try:
+                        sentimento = float(sentimento_str)
+                        
+                        # Filtra notícias com sentimento >= 7 ou <= 3
+                        if sentimento >= 7 or sentimento <= 3:
+                            # Armazena dicionário com resumo, data e sentimento
+                            resumo_escapado = EscaparMarkdown(resumo).escapar_markdown_v2()
+                            data_escapada = EscaparMarkdown(data_publicacao_str).escapar_markdown_v2()
+                            sentimento_escapado = EscaparMarkdown(str(sentimento)).escapar_markdown_v2()
+                            noticia_data = {
+                                'resumo': resumo_escapado,
+                                'data': data_escapada,
+                                'sentimento': sentimento_escapado
+                            }
+                            selected_news.append(noticia_data)
+                            print(f"✓ Notícia selecionada (Sentimento: {sentimento}, Data: {data_noticia}): {resumo[:80]}...")
+                    
+                    except (ValueError, TypeError):
+                        # Ignora linhas com sentimento inválido
+                        print(f"Sentimento inválido ignorado: {sentimento_str}")
+                        continue
+            
+            print(f"\n📊 Resumo do filtro:")
+            print(f"   Total de notícias do dia {hoje_utc}: {total_noticias_hoje}")
+            print(f"   ✅ Notícias selecionadas (sentimento >= 7 ou <= 3): {len(selected_news)}")
+
+
+        except Exception as e:
+            print(f"Erro ao ler arquivo CSV: {e}")
+        
+        return selected_news
+
     def process_news(self, output_format='print', csv_filename='crypto_news_summary.csv', hours_limit=2):
         """
         Função principal para monitorar, extrair, resumir notícias e apresentar/salvar os resultados.
@@ -828,6 +956,9 @@ class ScraperCointelegraph:
         print(f"\nIniciando processamento de notícias (Fonte: {self.sitemap_url})...")
         print(f"Processando notícias publicadas nas últimas {hours_limit} hora(s).")
 
+        # Carrega os links já processados do CSV
+        processed_links = self._load_processed_links(csv_filename)
+
         sitemap_news_items = self._get_news_from_sitemap()
 
         if not sitemap_news_items:
@@ -843,9 +974,18 @@ class ScraperCointelegraph:
         print(f"Filtrando notícias publicadas após: {time_threshold.strftime('%Y-%m-%d %H:%M:%S %Z')}")
 
         processed_count = 0
+        skipped_count = 0
 
         for item in sitemap_news_items: # sitemap_news_items já está limitado por self.max_news_to_process
             print(f"\nVerificando notícia: {item.get('title', 'Título Desconhecido')}")
+            
+            # Verifica se a notícia já foi processada
+            article_url = item.get('original_article_url')
+            if article_url in processed_links:
+                print(f"  -> Notícia JÁ PROCESSADA anteriormente. Pulando.")
+                skipped_count += 1
+                continue
+            
             print(f"  Data de Publicação (do sitemap): {item.get('publication_date', 'N/A')}")
 
             publication_date_str = item.get('publication_date')
@@ -856,11 +996,7 @@ class ScraperCointelegraph:
                     publication_date_str_adjusted = publication_date_str
                     if publication_date_str.endswith('Z'):
                         publication_date_str_adjusted = publication_date_str[:-1] + '+00:00'
-                    elif not any(c in publication_date_str for c in ['+', '-']) and len(publication_date_str) > 19: # Heurística para timezone faltando
-                         # Tenta tratar casos onde o offset pode estar faltando mas o formato é quase ISO
-                         # Ex: 2024-05-27T18:20:00.000 (sem Z ou offset) -> assumir UTC pode ser uma opção
-                         # No entanto, fromisoformat é mais rigoroso. Se o formato for consistentemente com Z,
-                         # este 'elif' pode não ser necessário.
+                    elif not any(c in publication_date_str for c in ['+', '-']) and len(publication_date_str) > 19:
                          pass
 
                     news_publication_date_obj = datetime.fromisoformat(publication_date_str_adjusted)
@@ -904,12 +1040,24 @@ class ScraperCointelegraph:
             else:
                 print(f"-> Notícia FORA do limite de {hours_limit} hora(s) (publicada em {news_publication_date_obj.strftime('%Y-%m-%d %H:%M:%S %Z')}). Ignorando.")
 
+        # Resumo do processamento
+        print(f"\n--- Resumo do Processamento ---")
+        print(f"Notícias no sitemap verificadas: {len(sitemap_news_items)}")
+        print(f"Notícias já processadas (puladas): {skipped_count}")
+        print(f"Notícias novas processadas: {processed_count}")
+        print(f"Notícias fora do limite de tempo: {len(sitemap_news_items) - skipped_count - processed_count}")
+        
         if processed_count == 0 and len(sitemap_news_items) > 0:
-            print(f"\nNenhuma notícia encontrada dentro do limite de {hours_limit} hora(s) das {len(sitemap_news_items)} notícias verificadas do sitemap.")
+            print(f"\nNenhuma notícia nova encontrada dentro do limite de {hours_limit} hora(s).")
 
         if not all_summaries:
             print("Nenhum resumo foi gerado (ou nenhuma notícia passou no filtro de tempo).")
             #return [] # Já retorna all_summaries que estará vazio
+
+        # Salva todos os resumos no CSV
+        if all_summaries:
+            self._save_summaries_to_csv(all_summaries, csv_filename)
+            print(f"\n✅ {len(all_summaries)} resumo(s) salvo(s) em '{csv_filename}'")
 
         resumos_noticias = []
         if all_summaries:
@@ -2298,7 +2446,7 @@ async def main():
         # # # Inicializa o notificador do Telegram
         notifier = TelegramNotifier()
 
-        # PROCESSO 1 - Verifica eventos importantes
+        # # PROCESSO 1 - Verifica eventos importantes
         # events_client = EconomicEvents()
         # mensagem_eventos_economicos = events_client.gerar_relatório_telegram()
         # if mensagem_eventos_economicos:
@@ -2341,40 +2489,54 @@ async def main():
         # if arquivo_menor and ticker_menor:
         #     await notifier.enviar_imagem(caminho_imagem=arquivo_menor, legenda=f"Análise Técnica - {ticker_menor.split(':')[1]}")
 
-        # # PROCESSO 7 - Verifica e envia notícias no site
-        # # Configurações do seu scraper do site Cointelegraph
-        # maximo_noticias = 30
-        # limite_horas_recentes = 24
+        # PROCESSO 7 - Verifica e envia notícias no site
+        # Configurações do seu scraper do site Cointelegraph
+        maximo_noticias = 30
+        limite_horas_recentes = 24
 
-        # # Cria uma instância do processador de notícias do site Cointelegraph
-        # processor = ScraperCointelegraph(
-        #     sitemap_url="https://cointelegraph.com/sitemap-google-news.xml",
-        #     max_news_to_process=maximo_noticias
-        # )
-        # resultados = processor.process_news(
-        #     output_format='list',
-        #     csv_filename='noticias_cripto_processadas.csv',
-        #     hours_limit=limite_horas_recentes
-        # )
-        # if resultados:
-        #     for r in resultados:
-        #         await notifier.enviar_mensagem(r)
-        #         time.sleep(60)
-        # else:
-        #     logger.info("Nenhuma notícia encontrada para enviar.")
+        # Cria uma instância do processador de notícias do site Cointelegraph
+        processor = ScraperCointelegraph(
+            sitemap_url="https://cointelegraph.com/sitemap-google-news.xml",
+            max_news_to_process=maximo_noticias
+        )
+        resultados = processor.process_news(
+            output_format='list',
+            csv_filename='noticias_cripto_processadas.csv',
+            hours_limit=limite_horas_recentes
+        )
+        if resultados:
+            for r in resultados:
+                await notifier.enviar_mensagem(r)
+                time.sleep(60)
+        else:
+            logger.info("Nenhuma notícia encontrada para enviar.")
         
+        melhores_noticias = processor.select_news()
+        id = os.getenv("MEU_CHAT_ID_PESSOAL")
+        
+        for noticia in melhores_noticias:
+            # O resumo já está escapado para MarkdownV2
+            await notifier.enviar_mensagem(noticia['resumo'], target_chat_id=id)
+
+            await notifier.enviar_mensagem(noticia['data'], target_chat_id=id)
+            await notifier.enviar_mensagem(f"sentimento: {noticia['sentimento']}", target_chat_id=id)
+
+            # Adiciona separador visual
+            await notifier.enviar_mensagem("─────────────────", target_chat_id=id)
+            time.sleep(2)
+
         # ACERTAR ESSE PROCESSO
         
         # PROCESSO 8 - Cria uma instância do processador de notícias do site Beincrypto
-        scraper = ScraperBeincrypto()
-        dados_de_hoje = scraper.run(somente_hoje=True, limit=1)
-        if dados_de_hoje:
-            for n in dados_de_hoje:
-                await notifier.enviar_mensagem(n['resumo'])
-                time.sleep(60)
-        else:
-            logger.info("Nenhuma notícia do Beincrypto encontrada para enviar.")
-        print("\nProcesso finalizado com sucesso!")
+        # scraper = ScraperBeincrypto()
+        # dados_de_hoje = scraper.run(somente_hoje=True, limit=1)
+        # if dados_de_hoje:
+        #     for n in dados_de_hoje:
+        #         await notifier.enviar_mensagem(n['resumo'])
+        #         time.sleep(60)
+        # else:
+        #     logger.info("Nenhuma notícia do Beincrypto encontrada para enviar.")
+        # print("\nProcesso finalizado com sucesso!")
 
     except ValueError as e:
         logger.error(f"Erro de configuração: {e}. Verifique seu arquivo .env")
