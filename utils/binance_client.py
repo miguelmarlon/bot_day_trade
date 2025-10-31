@@ -8,14 +8,13 @@ from ccxt import AuthenticationError, NetworkError, RequestTimeout
 import pandas as pd
 import asyncio
 import time
-from config.config import BINANCE_API_KEY, BINANCE_SECRET_KEY
+from config.config import BINANCE_API_KEY, BINANCE_SECRET_KEY, BINANCE_API_KEY_TESTNET, BINANCE_SECRET_KEY_TESTNET
 import logging
 import warnings
 # Configuração de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 # Ignorar avisos de depreciação do Pandas
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-
 
 class BinanceHandler:
     """
@@ -36,18 +35,66 @@ class BinanceHandler:
         self.markets = None
 
     @classmethod
-    async def create(cls):
+    async def create(cls, testnet: bool = False):
         """
         Método de fábrica assíncrono para criar e retornar uma instância de BinanceHandler.
+        
+        Args:
+            testnet (bool): Se True, usa as credenciais e URLs da testnet.
+                          Se False, usa a produção (padrão).
+        
+        Exemplos:
+            # Produção (real)
+            handler = await BinanceHandler.create()
+            
+            # Testnet (simulação)
+            handler = await BinanceHandler.create(testnet=True)
         """
-
-        client = ccxt_pro.binance({
-            'apiKey': BINANCE_API_KEY,
-            'secret': BINANCE_SECRET_KEY,
-            'enableRateLimit': True,
-            'options': {'defaultType': 'future',
-            'recvWindow': 10000}
-        })
+        
+        # Determina quais credenciais usar
+        if testnet:
+            api_key = BINANCE_API_KEY_TESTNET
+            secret_key = BINANCE_SECRET_KEY_TESTNET
+            
+            if not api_key or not secret_key:
+                raise ValueError(
+                    "❌ Credenciais da testnet não encontradas!\n"
+                    "Adicione no arquivo .env:\n"
+                    "BINANCE_TESTNET_API_KEY=sua_chave_aqui\n"
+                    "BINANCE_TESTNET_SECRET_KEY=seu_secret_aqui"
+                )
+            
+            # Configuração para testnet - FORMA CORRETA E EXPLÍCITA
+            client = ccxt_pro.binance({
+                'apiKey': api_key,
+                'secret': secret_key,
+                'enableRateLimit': True,
+                'options': {
+                    'defaultType': 'future',
+                    # Esta é a opção chave para forçar a testnet de futuros
+                    'testnet': True, 
+                    'adjustForTimeDifference': True
+                }
+            })
+            
+            logging.info("🧪 Modo TESTNET ativado - Nenhuma ordem real será executada!")
+            
+        else:
+            # Configuração para produção (real)
+            api_key = BINANCE_API_KEY
+            secret_key = BINANCE_SECRET_KEY
+            
+            client = ccxt_pro.binance({
+                'apiKey': api_key,
+                'secret': secret_key,
+                'enableRateLimit': True,
+                'options': {
+                    'defaultType': 'future',
+                    'recvWindow': 10000
+                }
+            })
+            
+            logging.info("💰 Modo PRODUÇÃO ativado - Operações reais na Binance!")
         
         # Retorna uma nova instância da classe, passando o cliente conectado.
         return cls(client)

@@ -36,6 +36,8 @@ class GerenciamentoRiscoAsync:
         self._current_trailing_stop_price: Dict[str, float] = {}
         # Atributo para controlar se o trailing está ativo para um símbolo
         self._is_trailing_active: Dict[str, bool] = {} 
+        # Controla notificações de prejuízo (evita spam)
+        self._loss_notified: Dict[str, bool] = {}
         # --- Fim das Alterações e Adições ---
 
         self.session = aiohttp.ClientSession()
@@ -135,42 +137,235 @@ class GerenciamentoRiscoAsync:
             await self.close()  # Fecha recursos em caso de falha
             raise
 
-    async def encerra_posicao(self, symbol: str, context: CallbackContext = None) -> None:
-        """Fecha uma posição de forma assíncrona"""
+    async def encerra_posicao(self, symbol: str, context: CallbackContext = None, 
+                              try_limit_first: bool = True, limit_timeout: int = 10) -> None:
+        """
+        Fecha uma posição de forma assíncrona usando estratégia híbrida LIMIT -> MARKET.
+        
+        Estratégia:
+        1. Tenta ordem LIMIT primeiro (melhor preço, economiza em taxas)
+        2. Aguarda `limit_timeout` segundos para execução
+        3. Se não executar, cancela e usa ordem MARKET (execução garantida)
+        
+        Args:
+            symbol: Símbolo do ativo (ex: 'BTC/USDT')
+            context: Contexto do Telegram para envio de mensagens
+            try_limit_first: Se True, tenta LIMIT antes de MARKET (default: True)
+            limit_timeout: Tempo em segundos para aguardar execução da ordem LIMIT (default: 10)
+        """
+        max_retries = 3
+        retry_count = 0
+        
+        # Notifica início do processo de fechamento
+        if context:
+            await self.enviar_mensagem(context, f"🔄 Iniciando fechamento de posição: {symbol}")
+        
         try:
-            while True:
+            while retry_count < max_retries:
+                # Verifica se a posição ainda está aberta
                 side, amount, _, is_open, _, _, _ = await self.posicoes_abertas(symbol)
+                
                 if not is_open:
+                    msg = f'✅ Posição {symbol} já está fechada'
+                    print(msg)
                     if context:
-                        await self.enviar_mensagem(context, 'Posição fechada')
-                    break
-
-                await self.binance_handler.client.cancel_all_orders (symbol)
-                bid, ask = await self.livro_ofertas(symbol)
-
-                if side == 'long':
-                    price = self.binance_handler.client.price_to_precision(symbol, ask)
-                    await self.binance_handler.client.create_order(
-                        symbol, side='sell', type= 'LIMIT', amount=amount, price=price,
-                        params={'hedged': 'true'}
-                    )
-                    msg = f'Fechando long: {amount} de {symbol}'
-                elif side == 'short':
-                    price = self.binance_handler.client.price_to_precision(symbol, bid)
-                    await self.binance_handler.client.create_order(
-                        symbol, side='buy', type= 'LIMIT',amount= amount, price=price,
-                        params={'hedged': 'true'}
-                    )
-                    msg = f'Fechando short: {amount} de {symbol}'
+                        await self.enviar_mensagem(context, msg)
+                    return
+                
+                # Valida amount
+                try:
+                    amount_float = float(amount) if amount not in (None, '', '0') else 0.0
+                except (ValueError, TypeError):
+                    error_msg = f'❌ Quantidade inválida para {symbol}: {amount}'
+                    print(error_msg)
+                    if context:
+                        await self.enviar_mensagem(context, error_msg)
+                    return
+                
+                if amount_float <= 0:
+                    msg = f'⚠️ Quantidade zero para {symbol}, nada para fechar'
+                    print(msg)
+                    if context:
+                        await self.enviar_mensagem(context, msg)
+                    return
+                
+                # Cancela todas as ordens abertas antes de fechar
+                try:
+                    await self.binance_handler.client.cancel_all_orders(symbol)
+                    print(f'[{symbol}] 🗑️ Ordens canceladas antes de fechar posição')
+                except Exception as cancel_error:
+                    print(f'[{symbol}] ⚠️ Erro ao cancelar ordens: {cancel_error}')
+                    # Continua mesmo se falhar ao cancelar
+                
+                order = None
+                order_executed = False
+                
+                # ESTRATÉGIA HÍBRIDA: Tenta LIMIT primeiro, depois MARKET
+                if try_limit_first:
+                    try:
+                        # Obtém preço do livro de ofertas para ordem LIMIT
+                        bid, ask = await self.livro_ofertas(symbol)
+                        
+                        if side == 'long':
+                            # Para fechar LONG, vende - usa o preço BID (melhor preço de compra)
+                            limit_price = float(bid)
+                            order_side = 'sell'
+                            msg_type = 'LONG'
+                        elif side == 'short':
+                            # Para fechar SHORT, compra - usa o preço ASK (melhor preço de venda)
+                            limit_price = float(ask)
+                            order_side = 'buy'
+                            msg_type = 'SHORT'
+                        else:
+                            error_msg = f'❌ Side inválido para {symbol}: {side}'
+                            print(error_msg)
+                            if context:
+                                await self.enviar_mensagem(context, error_msg)
+                            return
+                        
+                        # Ajusta precisão do preço
+                        limit_price = self.binance_handler.client.price_to_precision(symbol, limit_price)
+                        
+                        print(f'[{symbol}] 💰 Tentando ordem LIMIT para fechar {msg_type} a {limit_price}')
+                        
+                        # Notifica tentativa de ordem LIMIT
+                        if context:
+                            await self.enviar_mensagem(context, 
+                                f"💰 Tentando fechar {msg_type}\n"
+                                f"Tipo: LIMIT\n"
+                                f"Preço: {limit_price}\n"
+                                f"Quantidade: {amount_float}")
+                        
+                        # Cria ordem LIMIT
+                        order = await self.binance_handler.client.create_order(
+                            symbol=symbol,
+                            side=order_side,
+                            type='LIMIT',
+                            amount=amount_float,
+                            price=limit_price,
+                            params={
+                                'reduceOnly': True,
+                                'timeInForce': 'GTC'  # Good Till Cancel
+                            }
+                        )
+                        
+                        order_id = order.get('id')
+                        print(f'[{symbol}] ⏳ Ordem LIMIT criada (ID: {order_id}), aguardando {limit_timeout}s...')
+                        
+                        # Aguarda execução da ordem LIMIT
+                        for i in range(limit_timeout):
+                            await asyncio.sleep(1)
+                            
+                            # Verifica status da ordem
+                            try:
+                                order_status = await self.binance_handler.client.fetch_order(order_id, symbol)
+                                
+                                if order_status['status'] == 'closed':
+                                    order_executed = True
+                                    success_msg = f'✅ Ordem LIMIT executada! {msg_type} fechado a {limit_price}'
+                                    print(success_msg)
+                                    if context:
+                                        await self.enviar_mensagem(context, success_msg)
+                                    break
+                                    
+                            except Exception as status_error:
+                                print(f'[{symbol}] ⚠️ Erro ao verificar status da ordem: {status_error}')
+                        
+                        # Se ordem LIMIT não foi executada, cancela e vai para MARKET
+                        if not order_executed:
+                            print(f'[{symbol}] ⏱️ Ordem LIMIT não executada em {limit_timeout}s, cancelando...')
+                            
+                            # Notifica mudança para MARKET
+                            if context:
+                                await self.enviar_mensagem(context, 
+                                    f"⏱️ Ordem LIMIT não executada\n"
+                                    f"Mudando para ordem MARKET em {symbol}")
+                            
+                            try:
+                                await self.binance_handler.client.cancel_order(order_id, symbol)
+                                print(f'[{symbol}] 🗑️ Ordem LIMIT cancelada, mudando para MARKET')
+                            except Exception as cancel_error:
+                                print(f'[{symbol}] ⚠️ Erro ao cancelar ordem LIMIT: {cancel_error}')
+                        
+                    except Exception as limit_error:
+                        print(f'[{symbol}] ⚠️ Erro na ordem LIMIT: {limit_error}, mudando para MARKET')
+                        order_executed = False
+                
+                # Se LIMIT não executou OU não tentou LIMIT, usa MARKET
+                if not order_executed:
+                    try:
+                        if side == 'long':
+                            # Para fechar LONG, vende a MARKET
+                            order = await self.binance_handler.client.create_order(
+                                symbol=symbol,
+                                side='sell',
+                                type='MARKET',
+                                amount=amount_float,
+                                params={'reduceOnly': True}
+                            )
+                            msg = f'🔴 Fechando LONG: {amount_float} de {symbol} a MARKET'
+                            
+                        elif side == 'short':
+                            # Para fechar SHORT, compra a MARKET
+                            order = await self.binance_handler.client.create_order(
+                                symbol=symbol,
+                                side='buy',
+                                type='MARKET',
+                                amount=amount_float,
+                                params={'reduceOnly': True}
+                            )
+                            msg = f'🔴 Fechando SHORT: {amount_float} de {symbol} a MARKET'
+                            
+                        else:
+                            error_msg = f'❌ Side inválido para {symbol}: {side}'
+                            print(error_msg)
+                            if context:
+                                await self.enviar_mensagem(context, error_msg)
+                            return
+                        
+                        print(msg)
+                        if context:
+                            await self.enviar_mensagem(context, msg)
+                        
+                        # Aguarda processamento
+                        await asyncio.sleep(2)
+                        
+                    except Exception as market_error:
+                        retry_count += 1
+                        error_msg = f'❌ Erro ao criar ordem MARKET para {symbol} (tentativa {retry_count}/{max_retries}): {market_error}'
+                        print(error_msg)
+                        if context:
+                            await self.enviar_mensagem(context, error_msg)
+                        
+                        if retry_count < max_retries:
+                            await asyncio.sleep(3)
+                            continue
+                        else:
+                            raise
+                
+                # Verifica se a posição foi fechada
+                _, _, _, is_still_open, _, _, _ = await self.posicoes_abertas(symbol)
+                if not is_still_open:
+                    order_type = 'LIMIT' if order_executed else 'MARKET'
+                    success_msg = f'✅ Posição {symbol} fechada com sucesso via {order_type}! Ordem ID: {order.get("id", "N/A")}'
+                    print(success_msg)
+                    if context:
+                        await self.enviar_mensagem(context, success_msg)
+                    return
                 else:
-                    msg = 'Impossível encerrar a posição!'
-
-                if context:
-                    await self.enviar_mensagem(context, msg)
-                await asyncio.sleep(10)
+                    retry_count += 1
+                    print(f'[{symbol}] ⚠️ Posição ainda aberta após tentativa {retry_count}/{max_retries}')
+                    if retry_count < max_retries:
+                        await asyncio.sleep(3)
+            
+            # Se chegou aqui, excedeu as tentativas
+            final_error = f'❌ Falha ao fechar posição {symbol} após {max_retries} tentativas'
+            print(final_error)
+            if context:
+                await self.enviar_mensagem(context, final_error)
 
         except Exception as e:
-            error_msg = f'Erro ao encerrar posição: {str(e)}'
+            error_msg = f'❌ Erro crítico ao encerrar posição {symbol}: {str(e)}'
             print(error_msg)
             if context:
                 await self.enviar_mensagem(context, error_msg)
@@ -179,9 +374,23 @@ class GerenciamentoRiscoAsync:
                         symbol: str, 
                         loss: float, 
                         target: float, 
-                        context: Optional[CallbackContext] = None) -> None:
+                        context: Optional[CallbackContext] = None,
+                        try_limit_first: bool = True) -> None:
         """
         Gerencia stop loss e take profit de forma assíncrona com Trailing Stop por pontos fixos.
+        
+        Estratégia de Trailing Stop:
+        - Monitora o lucro da posição em tempo real
+        - Ajusta o stop loss automaticamente conforme o lucro aumenta
+        - Fecha posição automaticamente ao atingir stop loss ou take profit
+        - Usa estratégia híbrida LIMIT→MARKET para fechamento
+        
+        Args:
+            symbol: Símbolo do ativo (ex: 'BTC/USDT')
+            loss: Stop loss inicial em decimal (ex: -0.02 = -2%)
+            target: Take profit alvo em decimal (ex: 0.10 = 10%)
+            context: Contexto do Telegram para notificações
+            try_limit_first: Se True, tenta ordem LIMIT antes de MARKET
         """
         fixed_trailing_stops = {
             0.10: 0.05,  # 10% de lucro -> trailing stop em 5%
@@ -205,79 +414,195 @@ class GerenciamentoRiscoAsync:
             1.90: 1.80,  # 190% de lucro -> trailing stop em 180%
             2.00: 1.90   # 200% de lucro -> trailing stop em 190%
         }
+        
         # Inicializa os dados do trailing se ainda não estiverem prontos
         if symbol not in self._highest_profit_reached:
             self._highest_profit_reached[symbol] = -float('inf')
-            self._is_trailing_active[symbol] = False # Mantido para consistência, mas o uso é diferente
+            self._is_trailing_active[symbol] = False
 
         try:
             # Obtém os dados da posição atual
             side, amount, entry_price, is_open, entry_time, percentage_raw, pnl = await self.posicoes_abertas(symbol)
 
-            if percentage_raw is None:
-                print(f"[{symbol}] Posição aparentemente não está aberta ou dados inválidos.")
+            # Valida se a posição está aberta
+            if not is_open:
+                print(f"[{symbol}] ⚠️ Posição não está aberta, limpando dados de trailing")
+                # Limpa dados do trailing se a posição foi fechada
+                if symbol in self._highest_profit_reached:
+                    del self._highest_profit_reached[symbol]
+                if symbol in self._is_trailing_active:
+                    del self._is_trailing_active[symbol]
+                if symbol in self._loss_notified:
+                    del self._loss_notified[symbol]
+                self._save_trailing_data()
+                return
+            
+            # Valida dados da posição
+            if percentage_raw is None or pnl is None or entry_price is None or entry_price == 0:
+                print(f"[{symbol}] ⚠️ Dados da posição inválidos (percentage: {percentage_raw}, pnl: {pnl}, entry: {entry_price})")
                 return
 
-            percentage = percentage_raw / 100.0
+            # Calcula o percentual de lucro/prejuízo com base no preço de entrada e PNL
+            # Forma mais confiável que usar percentage_raw da API
+            try:
+                pnl_float = float(pnl)
+                entry_price_float = float(entry_price)
+                amount_float = float(amount) if amount not in (None, '', '0') else 0.0
+                
+                if amount_float == 0:
+                    print(f"[{symbol}] ⚠️ Quantidade da posição é zero")
+                    return
+                
+                # Calcula o valor nocional da posição (preço de entrada * quantidade)
+                position_value = entry_price_float * amount_float
+                
+                # Percentual de lucro = PNL / valor da posição
+                percentage = (pnl_float / position_value) if position_value > 0 else 0.0
+                
+            except (ValueError, TypeError, ZeroDivisionError) as calc_error:
+                print(f"[{symbol}] ❌ Erro ao calcular percentual de lucro: {calc_error}")
+                return
             
-            pnl_formatted = f"{float(pnl):.2f}"
+            pnl_formatted = f"{pnl_float:.2f}"
             highest = self._highest_profit_reached[symbol]
             
+            # Atualiza o maior lucro atingido
             if percentage > highest:
                 self._highest_profit_reached[symbol] = percentage
                 self._save_trailing_data()
+                print(f"[{symbol}] 📈 Novo pico de lucro: {percentage:.4%} (anterior: {highest:.4%})")
+                
+                # Notifica novo pico de lucro se for significativo (> 5%)
+                if percentage > 0.05 and (percentage - highest) > 0.02:  # Incremento de pelo menos 2%
+                    if context:
+                        await self.enviar_mensagem(context, 
+                            f"📈 Novo pico de lucro!\n"
+                            f"Símbolo: {symbol}\n"
+                            f"Lucro atual: {percentage:.2%}\n"
+                            f"PNL: {pnl_formatted} USD")
           
+            # Determina o stop loss atual (pode ser ajustado pelo trailing stop)
             current_loss_threshold = loss
-
+            previous_threshold = loss
+            
+            # Verifica se deve ativar trailing stop
             sorted_targets = sorted(fixed_trailing_stops.keys())
             
             for target_profit in sorted_targets:
                 if percentage >= target_profit:
-                    
+                    previous_threshold = current_loss_threshold
                     current_loss_threshold = fixed_trailing_stops[target_profit]
                     
-                    if not self._is_trailing_active[symbol]: 
+                    # Notifica se o trailing stop foi ajustado para um novo nível
+                    if current_loss_threshold != previous_threshold:
                         self._is_trailing_active[symbol] = True
-                        print(f"[{symbol}] ✅ Trailing Stop ajustado para {current_loss_threshold:.4%} (alvo: {target_profit:.4%})")
+                        print(f"[{symbol}] ✅ Trailing Stop ajustado de {previous_threshold:.4%} para {current_loss_threshold:.4%} (lucro atual: {percentage:.4%})")
                         if context:
-                            await self.enviar_mensagem(context, f"Trailing Stop para {symbol} ajustado para {current_loss_threshold:.4%} ao atingir {target_profit:.4%}")
+                            await self.enviar_mensagem(context, 
+                                f"🔄 Trailing Stop {symbol}\n"
+                                f"De: {previous_threshold:.2%} → Para: {current_loss_threshold:.2%}\n"
+                                f"Lucro atual: {percentage:.2%} ({pnl_formatted} USD)")
+                        self._save_trailing_data()
                 else:
                     break
+
+            # Log do status atual
+            print(f"[{symbol}] 📊 PNL: {percentage:.4%} ({pnl_formatted} USD) | "
+                  f"Stop: {current_loss_threshold:.4%} | Target: {target:.4%} | "
+                  f"Pico: {self._highest_profit_reached[symbol]:.4%}")
             
-            if current_loss_threshold > 0 and percentage < current_loss_threshold:
-                 
-                 if loss <= 0: 
-                    current_loss_threshold = max(current_loss_threshold, 0)
-                 print(f"[{symbol}] ⚠️ Stop Loss ajustado para {current_loss_threshold:.4%} se o valor calculado foi positivo.")
+            # Envia status periódico ao Telegram (apenas se trailing ativo e lucro > 3%)
+            if self._is_trailing_active[symbol] and percentage > 0.03:
+                # Envia update a cada 5% de progresso ou quando está próximo do stop/target
+                distance_to_stop = abs(percentage - current_loss_threshold)
+                distance_to_target = abs(target - percentage)
+                
+                if distance_to_stop < 0.02 or distance_to_target < 0.03:  # Próximo de eventos importantes
+                    if context:
+                        await self.enviar_mensagem(context, 
+                            f"⚠️ Status {symbol}\n"
+                            f"PNL: {percentage:.2%} ({pnl_formatted} USD)\n"
+                            f"Stop: {current_loss_threshold:.2%}\n"
+                            f"Target: {target:.2%}\n"
+                            f"Trailing: 🔄 ATIVO")
 
-            print(f"[{symbol}] 📊 PNL: {percentage:.4%} | Stop (ajustado): {current_loss_threshold:.4%} | Target (original): {target:.4%}")
-
+            # Verifica se deve fechar por STOP LOSS (ou trailing stop)
             if percentage <= current_loss_threshold:
-                print(f"[{symbol}] 🚨 Encerrando por LOSS (ou Trailing Stop atingido). PNL: {pnl_formatted} USD")
-                await self.encerra_posicao(symbol, context)
-                msg = f"❌ Saída por {('Trailing Stop' if current_loss_threshold > loss else 'LOSS')} de {pnl_formatted} USD (atingiu {percentage:.4%}, stop em {current_loss_threshold:.4%}) em {symbol}"
+                reason = 'Trailing Stop' if self._is_trailing_active[symbol] and current_loss_threshold > loss else 'STOP LOSS'
+                print(f"[{symbol}] 🚨 Encerrando por {reason}. PNL: {percentage:.4%} ({pnl_formatted} USD)")
+                
+                await self.encerra_posicao(symbol, context, try_limit_first=try_limit_first)
+                
+                msg = (f"❌ Saída por {reason}\n"
+                       f"PNL: {pnl_formatted} USD ({percentage:.2%})\n"
+                       f"Stop: {current_loss_threshold:.2%}\n"
+                       f"Símbolo: {symbol}")
                 if context:
                     await self.enviar_mensagem(context, msg)
                 
-                del self._highest_profit_reached[symbol]
-                del self._is_trailing_active[symbol]
+                # Limpa dados do trailing
+                if symbol in self._highest_profit_reached:
+                    del self._highest_profit_reached[symbol]
+                if symbol in self._is_trailing_active:
+                    del self._is_trailing_active[symbol]
+                if symbol in self._loss_notified:
+                    del self._loss_notified[symbol]
+                self._save_trailing_data()
 
+            # Verifica se deve fechar por TAKE PROFIT
             elif percentage >= target:
-                print(f"[{symbol}] ✅ Encerrando por GAIN. PNL: {pnl_formatted} USD")
-                await self.encerra_posicao(symbol, context)
-                msg = f"✅ GAIN de {pnl_formatted} USD (atingiu {percentage:.4%}) em {symbol}"
+                print(f"[{symbol}] ✅ Encerrando por TAKE PROFIT. PNL: {percentage:.4%} ({pnl_formatted} USD)")
+                
+                await self.encerra_posicao(symbol, context, try_limit_first=try_limit_first)
+                
+                msg = (f"✅ TAKE PROFIT atingido!\n"
+                       f"PNL: {pnl_formatted} USD ({percentage:.2%})\n"
+                       f"Target: {target:.2%}\n"
+                       f"Símbolo: {symbol}")
                 if context:
                     await self.enviar_mensagem(context, msg)
                 
-                del self._highest_profit_reached[symbol]
-                del self._is_trailing_active[symbol]
+                # Limpa dados do trailing
+                if symbol in self._highest_profit_reached:
+                    del self._highest_profit_reached[symbol]
+                if symbol in self._is_trailing_active:
+                    del self._is_trailing_active[symbol]
+                if symbol in self._loss_notified:
+                    del self._loss_notified[symbol]
+                self._save_trailing_data()
 
             else:
-                print(f"[{symbol}] ⏳ Posição em aberto. PNL atual: {percentage:.4%}")
+                # Posição ainda em aberto, dentro dos limites
+                trailing_status = "🔄 ATIVO" if self._is_trailing_active[symbol] else "⏸️ INATIVO"
+                print(f"[{symbol}] ⏳ Posição em aberto | PNL: {percentage:.4%} | Trailing: {trailing_status}")
+                
+                # Notifica quando posição entra em prejuízo significativo (apenas uma vez)
+                if percentage < -0.01 and symbol not in self._loss_notified:
+                    self._loss_notified[symbol] = True
+                    
+                    if context:
+                        await self.enviar_mensagem(context, 
+                            f"⚠️ Posição em prejuízo\n"
+                            f"Símbolo: {symbol}\n"
+                            f"PNL: {percentage:.2%} ({pnl_formatted} USD)\n"
+                            f"Stop Loss: {current_loss_threshold:.2%}")
+                
+                # Notifica quando posição volta ao lucro após estar em prejuízo
+                elif percentage > 0 and symbol in self._loss_notified:
+                    del self._loss_notified[symbol]
+                    
+                    if context:
+                        await self.enviar_mensagem(context, 
+                            f"✅ Posição recuperada!\n"
+                            f"Símbolo: {symbol}\n"
+                            f"PNL: {percentage:.2%} ({pnl_formatted} USD)\n"
+                            f"Status: Voltou ao lucro")
 
         except Exception as e:
-            error_msg = f"Erro no gerenciamento de PNL para {symbol}: {str(e)}"
+            error_msg = f"❌ Erro no gerenciamento de PNL para {symbol}: {str(e)}"
             print(error_msg)
+            import traceback
+            print(traceback.format_exc())
             if context:
                 await self.enviar_mensagem(context, error_msg)
 
@@ -305,97 +630,6 @@ class GerenciamentoRiscoAsync:
         except Exception:
             return False
 
-    # async def stop_dinamico(self, symbol: str, take_profit: float, stop_loss: float, context: CallbackContext = None) -> None:
-    #     """Ajusta stops dinâmicos de forma assíncrona"""
-    #     try:
-    #         positions = await self.binance_handler.client.fetch_positions (symbols=[symbol])
-    #         position = positions[0] if positions else None
-    #         # if not position:
-    #         #     return
-
-    #         side = position['side']
-    #         amount = position['info']['positionAmt'].replace('-', '')
-    #         entry_price = position['entryPrice']
-    #         mark_price = float(position['info']['markPrice'])
-
-    #         if not amount or float(amount) == 0:
-    #             return
-
-    #         orders = await self.binance_handler.client.fetch_orders (symbol)
-    #         if not orders:
-    #             return
-
-    #         last_order = orders[-1]
-    #         take_profit_price = float(self.binance_handler.client.price_to_precision(symbol, last_order['stopPrice']))
-
-    #         if side == 'long':
-    #             price_var = ((mark_price - entry_price) / entry_price) * 100
-    #             print(f'{symbol}: {price_var:.2f}% em relação a entrada do {side}')
-
-    #             if ((take_profit_price - mark_price) / mark_price) <= (0.2 * take_profit):
-    #                 await self.binance_handler.client.cancel_all_orders (symbol)
-    #                 trades = await self.binance_handler.client.fetch_trades (symbol)
-    #                 last_trade = trades[-1] if trades else None
-    #                 # Se 'last_trade' for um dicionário (não None), esta linha funcionará
-    #                 if last_trade: # Adicione esta verificação para evitar TypeError se last_trade for None
-    #                     current_price = float(self.binance_handler.client.price_to_precision(symbol, last_trade['price']))
-    #                 else:
-    #                     # Lidar com o caso de não haver trades (definir um preço padrão, logar, etc.)
-    #                     current_price = None # Ou algum valor padrão adequado
-    #                     print(f"[{symbol}] Aviso: Não foi possível obter o último trade.")
-
-    #                 stop_loss_price = current_price * (1 - stop_loss)
-    #                 take_profit_price = current_price * (1 + take_profit)
-
-    #                 await self.binance_handler.create_order(
-    #                     symbol=symbol, side='sell', type='STOP_MARKET',
-    #                     amount=amount, params={'stopPrice': stop_loss_price}
-    #                 )
-    #                 await self.binance_handler.create_order(
-    #                     symbol=symbol, side='sell', type='TAKE_PROFIT_MARKET',
-    #                     amount=amount, params={'stopPrice': take_profit_price}
-    #                 )
-    #                 msg = f'Stop loss e Take Profit atualizadas no long em {symbol}'
-    #                 if context:
-    #                     await self.enviar_mensagem(context, msg)
-
-    #         elif side == 'short':
-    #             price_var = ((entry_price - mark_price) / mark_price) * 100
-    #             print(f'{symbol}: {price_var:.2f}% em relação a entrada do {side}')
-
-    #             if ((mark_price - take_profit_price) / take_profit_price) <= (0.2 * take_profit):
-    #                 await self.binance_handler.client.cancel_all_orders (symbol)
-    #                 trades = await self.binance_handler.client.fetch_trades (symbol)
-    #                 last_trade = trades[-1] if trades else None
-    #                 # Se 'last_trade' for um dicionário (não None), esta linha funcionará
-    #                 if last_trade: # Adicione esta verificação para evitar TypeError se last_trade for None
-    #                     current_price = float(self.binance_handler.client.price_to_precision(symbol, last_trade['price']))
-    #                 else:
-    #                     # Lidar com o caso de não haver trades (definir um preço padrão, logar, etc.)
-    #                     current_price = None # Ou algum valor padrão adequado
-    #                     print(f"[{symbol}] Aviso: Não foi possível obter o último trade.")
-
-    #                 stop_loss_price = current_price * (1 + stop_loss)
-    #                 take_profit_price = current_price * (1 - take_profit)
-
-    #                 await self.binance_handler.client.create_order(
-    #                     symbol=symbol, side='buy', type='STOP_MARKET',
-    #                     amount=amount, params={'stopPrice': stop_loss_price}
-    #                 )
-    #                 await self.binance_handler.client.create_order(
-    #                     symbol=symbol, side='buy', type='TAKE_PROFIT_MARKET',
-    #                     amount=amount, params={'stopPrice': take_profit_price}
-    #                 )
-    #                 msg = f'Stop loss e Take Profit atualizadas no short em {symbol}'
-    #                 if context:
-    #                     await self.enviar_mensagem(context, msg)
-
-    #     except Exception as e:
-    #         error_msg = f'Erro no stop dinâmico: {str(e)}'
-    #         print(error_msg)
-    #         if context:
-    #             await self.enviar_mensagem(context, error_msg)
-
     async def enviar_mensagem(self, context: CallbackContext, texto: str) -> None:
         """Envia mensagem via Telegram de forma assíncrona"""
         try:
@@ -408,9 +642,21 @@ class GerenciamentoRiscoAsync:
             print(f"Erro ao enviar mensagem: {e}")
 
     async def stop_dinamico(self, symbol: str, take_profit: float, stop_loss: float, context: CallbackContext = None) -> None:
-        """Ajusta stops dinâmicos de forma assíncrona"""
+        """
+        Ajusta stops dinâmicos de forma assíncrona.
+        
+        A função monitora a posição e ajusta stop loss/take profit quando:
+        - Para LONG: preço atual está a 50% ou mais do caminho até o take profit
+        - Para SHORT: preço atual está a 50% ou mais do caminho até o take profit
+        
+        Args:
+            symbol: Símbolo do ativo (ex: 'BTC/USDT')
+            take_profit: Percentual de lucro alvo (ex: 0.05 = 5%)
+            stop_loss: Percentual de perda máxima (ex: 0.02 = 2%)
+            context: Contexto do Telegram para envio de mensagens
+        """
 
-        def is_number(value: str) -> bool:
+        def is_number(value) -> bool:
                 try:
                     float(value)
                     return True
@@ -495,93 +741,139 @@ class GerenciamentoRiscoAsync:
             # current_take_profit_reference_price = take_profit_order_price
 
             if side == 'long':
+                # Calcula variação de preço em relação à entrada
                 price_var = ((mark_price - entry_price) / entry_price) * 100
-                msg = f'{symbol}: {price_var:.2f}% em relação a entrada do {side}'
+                
+                # Calcula quanto falta para o take profit (em valor absoluto)
+                distance_to_tp = abs(take_profit_price - mark_price)
+                total_distance = abs(take_profit_price - entry_price)
+                progress_percent = ((total_distance - distance_to_tp) / total_distance) * 100 if total_distance > 0 else 0
+                
+                msg = f'📊 {symbol} LONG: {price_var:.2f}% | Progresso até TP: {progress_percent:.1f}%'
                 print(msg)
-                await self.enviar_mensagem(context, msg) if context else None
+                if context:
+                    await self.enviar_mensagem(context, msg)
 
-                if ((take_profit_price - mark_price) / mark_price) <= (0.2 * take_profit):
-                    await self.binance_handler.client.cancel_all_orders (symbol)
-                    trades = await self.binance_handler.client.fetch_trades (symbol)
-                    last_trade = trades[-1] if trades else None
+                # CONDIÇÃO AJUSTADA: Ativa quando atingir 50% do caminho até o take profit
+                # Isso torna o trailing stop mais agressivo e protege lucros mais cedo
+                if progress_percent >= 50:
+                    print(f"[{symbol}] 🔄 Ajustando stops - Progresso: {progress_percent:.1f}%")
                     
-                    if last_trade: 
-                        raw_price = last_trade.get('price')
+                    await self.binance_handler.client.cancel_all_orders(symbol)
+                    
+                    # Usa mark_price como preço atual (mais confiável que último trade)
+                    current_price = mark_price
+                    
+                    # Calcula novos stops baseados no preço atual
+                    new_stop_loss_price = current_price * (1 - stop_loss)
+                    new_take_profit_price = current_price * (1 + take_profit)
+                    
+                    print(f"[{symbol}] 📍 Preço atual: {current_price:.8f}")
+                    print(f"[{symbol}] 🛑 Novo Stop Loss: {new_stop_loss_price:.8f} ({-stop_loss*100:.2f}%)")
+                    print(f"[{symbol}] 🎯 Novo Take Profit: {new_take_profit_price:.8f} ({take_profit*100:.2f}%)")
 
-                        if not raw_price or not is_number(raw_price):
-                            print(f"[{symbol}] Preço bruto inválido (antes de precisão): {raw_price}")
-                            return
-
-                        try:
-                            precise_price = self.binance_handler.client.price_to_precision(symbol, raw_price)
-                        except Exception as e:
-                            print(f"[{symbol}] Erro em price_to_precision com valor '{raw_price}': {e}")
-                            return
-                        if not is_number(precise_price):
-                            print(f"[{symbol}] Preço com precisão inválido: {precise_price}")
-                            return
-                        current_price = float(precise_price)
-                    else:
-                        current_price = None
-                        print(f"[{symbol}] Aviso: Não foi possível obter o último trade.")
-
-                    stop_loss_price = current_price * (1 - stop_loss)
-                    take_profit_price = current_price * (1 + take_profit)
-
-                    await self.binance_handler.create_order(
-                        symbol=symbol, side='sell', type='STOP_MARKET',
-                        amount=amount, params={'stopPrice': stop_loss_price}
-                    )
-                    await self.binance_handler.create_order(
-                        symbol=symbol, side='sell', type='TAKE_PROFIT_MARKET',
-                        amount=amount, params={'stopPrice': take_profit_price}
-                    )
-                    msg = f'Stop loss e Take Profit atualizadas no long em {symbol}'
-                    if context:
-                        await self.enviar_mensagem(context, msg)
+                    try:
+                        # Cria ordem de Stop Loss
+                        await self.binance_handler.create_order(
+                            symbol=symbol, 
+                            side='sell', 
+                            type='STOP_MARKET',
+                            amount=amount, 
+                            params={'stopPrice': new_stop_loss_price}
+                        )
+                        
+                        # Cria ordem de Take Profit
+                        await self.binance_handler.create_order(
+                            symbol=symbol, 
+                            side='sell', 
+                            type='TAKE_PROFIT_MARKET',
+                            amount=amount, 
+                            params={'stopPrice': new_take_profit_price}
+                        )
+                        
+                        msg = f'✅ Stops atualizados para LONG em {symbol}\n' \
+                              f'🛑 SL: {new_stop_loss_price:.8f}\n' \
+                              f'🎯 TP: {new_take_profit_price:.8f}'
+                        print(msg)
+                        if context:
+                            await self.enviar_mensagem(context, msg)
+                            
+                    except Exception as order_error:
+                        error_msg = f"❌ Erro ao criar ordens para {symbol}: {order_error}"
+                        print(error_msg)
+                        if context:
+                            await self.enviar_mensagem(context, error_msg)
+                else:
+                    print(f"[{symbol}] ⏸️ Aguardando progresso de 50% (atual: {progress_percent:.1f}%)")
 
             elif side == 'short':
+                # Calcula variação de preço em relação à entrada (SHORT: lucro quando preço cai)
                 price_var = ((entry_price - mark_price) / mark_price) * 100
-                msg = f'{symbol}: {price_var:.2f}% em relação a entrada do {side}'
+                
+                # Calcula quanto falta para o take profit
+                distance_to_tp = abs(mark_price - take_profit_price)
+                total_distance = abs(entry_price - take_profit_price)
+                progress_percent = ((total_distance - distance_to_tp) / total_distance) * 100 if total_distance > 0 else 0
+                
+                msg = f'📊 {symbol} SHORT: {price_var:.2f}% | Progresso até TP: {progress_percent:.1f}%'
                 print(msg)
-                await self.enviar_mensagem(context, msg) if context else None
-                if ((mark_price - take_profit_price) / take_profit_price) <= (0.2 * take_profit):
-                    await self.binance_handler.client.cancel_all_orders (symbol)
-                    trades = await self.binance_handler.client.fetch_trades (symbol)
-                    last_trade = trades[-1] if trades else None
+                if context:
+                    await self.enviar_mensagem(context, msg)
+
+                # CONDIÇÃO AJUSTADA: Ativa quando atingir 50% do caminho até o take profit
+                if progress_percent >= 50:
+                    print(f"[{symbol}] 🔄 Ajustando stops - Progresso: {progress_percent:.1f}%")
                     
-                    if last_trade:
-                        raw_price = last_trade.get('price')
-                        if not raw_price or not is_number(raw_price):
-                            print(f"[{symbol}] Preço bruto inválido (antes de precisão): {raw_price}")
-                            return
-                        try:
-                            precise_price = self.binance_handler.client.price_to_precision(symbol, raw_price)
-                        except Exception as e:
-                            print(f"[{symbol}] Erro em price_to_precision com valor '{raw_price}': {e}")
-                            return
-                        if not is_number(precise_price):
-                            print(f"[{symbol}] Preço com precisão inválido: {precise_price}")
-                            return
-                        current_price = float(precise_price)
-                    else:
-                        current_price = None
-                        print(f"[{symbol}] Aviso: Não foi possível obter o último trade.")
+                    await self.binance_handler.client.cancel_all_orders(symbol)
+                    
+                    # Usa mark_price como preço atual
+                    current_price = mark_price
+                    
+                    # Calcula novos stops baseados no preço atual
+                    # Para SHORT: stop loss é ACIMA do preço atual, take profit é ABAIXO
+                    new_stop_loss_price = current_price * (1 + stop_loss)
+                    new_take_profit_price = current_price * (1 - take_profit)
+                    
+                    print(f"[{symbol}] 📍 Preço atual: {current_price:.8f}")
+                    print(f"[{symbol}] 🛑 Novo Stop Loss: {new_stop_loss_price:.8f} ({stop_loss*100:.2f}%)")
+                    print(f"[{symbol}] 🎯 Novo Take Profit: {new_take_profit_price:.8f} ({-take_profit*100:.2f}%)")
 
-                    stop_loss_price = current_price * (1 + stop_loss)
-                    take_profit_price = current_price * (1 - take_profit)
-
-                    await self.binance_handler.client.create_order(
-                        symbol=symbol, side='buy', type='STOP_MARKET',
-                        amount=amount, params={'stopPrice': stop_loss_price}
-                    )
-                    await self.binance_handler.client.create_order(
-                        symbol=symbol, side='buy', type='TAKE_PROFIT_MARKET',
-                        amount=amount, params={'stopPrice': take_profit_price}
-                    )
-                    msg = f'Stop loss e Take Profit atualizadas no short em {symbol}'
-                    if context:
-                        await self.enviar_mensagem(context, msg)
+                    try:
+                        # Cria ordem de Stop Loss (compra acima do preço atual)
+                        await self.binance_handler.create_order(
+                            symbol=symbol, 
+                            side='buy', 
+                            type='STOP_MARKET',
+                            amount=amount, 
+                            params={'stopPrice': new_stop_loss_price}
+                        )
+                        
+                        # Cria ordem de Take Profit (compra abaixo do preço atual)
+                        await self.binance_handler.create_order(
+                            symbol=symbol, 
+                            side='buy', 
+                            type='TAKE_PROFIT_MARKET',
+                            amount=amount, 
+                            params={'stopPrice': new_take_profit_price}
+                        )
+                        
+                        msg = f'✅ Stops atualizados para SHORT em {symbol}\n' \
+                              f'🛑 SL: {new_stop_loss_price:.8f}\n' \
+                              f'🎯 TP: {new_take_profit_price:.8f}'
+                        print(msg)
+                        if context:
+                            await self.enviar_mensagem(context, msg)
+                            
+                    except Exception as order_error:
+                        error_msg = f"❌ Erro ao criar ordens para {symbol}: {order_error}"
+                        print(error_msg)
+                        if context:
+                            await self.enviar_mensagem(context, error_msg)
+                else:
+                    print(f"[{symbol}] ⏸️ Aguardando progresso de 50% (atual: {progress_percent:.1f}%)")
+            
+            else:
+                print(f"[{symbol}] ⚠️ Side inválido ou posição não identificada: {side}")
 
         except Exception as e:
             error_msg = f'Erro no stop dinâmico para {symbol}: {str(e)}'
@@ -593,210 +885,3 @@ class GerenciamentoRiscoAsync:
 # gr = GerenciamentoRiscoAsync()
 # await gr.fecha_pnl('BTC/USDT', -5, 10, context)
 # await gr.close()
-
-    # async def fecha_pnl(self, symbol: str, loss: float, target: float, context: CallbackContext = None) -> None:
-    #     """Gerencia stop loss e take profit de forma assíncrona"""
-    #     try:
-    #         _, _, _, _, _, percentage, pnl = await self.posicoes_abertas(symbol)
-            
-    #         if percentage:
-    #             pnl_formatted = f"{float(pnl):.2f}"
-                
-    #             if percentage <= loss:
-    #                 print(f'Encerrando posição por loss! {pnl}')
-    #                 await self.encerra_posicao(symbol, context)
-    #                 msg = f'LOSS de {pnl_formatted} USD'
-    #                 if context:
-    #                     await self.enviar_mensagem(context, msg)
-                    
-    #             elif percentage >= target:
-    #                 print(f'Encerrando posição por gain! {pnl}')
-    #                 await self.encerra_posicao(symbol, context)
-    #                 msg = f'GAIN de {pnl_formatted} USD'
-    #                 if context:
-    #                     await self.enviar_mensagem(context, msg)
-
-    #     except Exception as e:
-    #         error_msg = f'Erro no gerenciamento de PNL: {str(e)}'
-    #         print(error_msg)
-    #         if context:
-    #             await self.enviar_mensagem(context, error_msg)
-
-    # async def fecha_pnl(self, 
-    #                     symbol: str, 
-    #                     loss: float, 
-    #                     target: float, 
-    #                     trailing_activation_percentage: Optional[float] = None,
-    #                     trailing_distance_percentage: Optional[float] = None,   
-    #                     context: Optional[CallbackContext] = None) -> None:
-    #     """
-    #     Gerencia stop loss e take profit de forma assíncrona com Trailing Stop Dinâmico.
-    #     """
-        
-    #     if symbol not in self._highest_profit_reached:
-    #         self._highest_profit_reached[symbol] = -float('inf')
-    #         self._is_trailing_active[symbol] = False 
-
-    #     current_loss_threshold = loss
-        
-    #     try:
-    #         _, _, _, _, _, percentage, pnl = await self.posicoes_abertas(symbol)
-            
-    #         if percentage is not None:
-    #             pnl_formatted = f"{float(pnl):.2f}"
-                
-    #             if trailing_activation_percentage is not None and trailing_distance_percentage is not None:
-                    
-                    
-    #                 if percentage > self._highest_profit_reached[symbol]:
-    #                     self._highest_profit_reached[symbol] = percentage
-                        
-    #                     self._save_trailing_data()
-    #                     # Opcional: notificar sobre um novo pico se o trailing já estiver ativo
-    #                     if self._is_trailing_active[symbol]:
-    #                         print(f"Novo pico para {symbol}: {self._highest_profit_reached[symbol]:.2%}")
-
-    #                 if self._highest_profit_reached[symbol] >= trailing_activation_percentage:
-                        
-    #                     if not self._is_trailing_active[symbol]:
-    #                         self._is_trailing_active[symbol] = True
-    #                         self._save_trailing_data() 
-    #                         print(f"Trailing Stop ATIVADO para {symbol} em {self._highest_profit_reached[symbol]:.2%}")
-    #                         if context:
-    #                             await self.enviar_mensagem(context, 
-    #                                 f"Trailing Stop ATIVADO para {symbol}! Lucro de {self._highest_profit_reached[symbol]:.2%}.")
-
-    #                     calculated_trailing_sl = self._highest_profit_reached[symbol] - trailing_distance_percentage
-                        
-    #                     current_loss_threshold = max(current_loss_threshold, calculated_trailing_sl)
-
-    #                     if not math.isclose(current_loss_threshold, loss) and \
-    #                        (self._highest_profit_reached[symbol] >= trailing_activation_percentage and \
-    #                         (calculated_trailing_sl > loss or self._is_trailing_active[symbol])):
-    #                         print(f"Trailing Ajustado para {symbol}: "
-    #                               f"Pico de Lucro: {self._highest_profit_reached[symbol]:.2%}, "
-    #                               f"Distância: {trailing_distance_percentage:.2%}. "
-    #                               f"SL Calculado: {calculated_trailing_sl:.2%}. "
-    #                               f"SL Atual: {current_loss_threshold:.2%}.")
-    #                 else:
-    #                     print(f"Trailing para {symbol} não ativado. Lucro atual: {percentage:.2%}, "
-    #                           f"Pico: {self._highest_profit_reached[symbol]:.2%}. "
-    #                           f"Aguardando {trailing_activation_percentage:.2%} para ativar.")
-    #             else:
-    #                 print(f"Trailing Stop Dinâmico não configurado para {symbol}. Usando Stop Loss Fixo: {current_loss_threshold:.2%}.")
-
-    #             if percentage <= current_loss_threshold:
-    #                 print(f'Encerrando posição por LOSS! PNL: {pnl_formatted} USD (Limite: {current_loss_threshold:.2%})')
-    #                 await self.encerra_posicao(symbol, context)
-    #                 msg = f'LOSS de {pnl_formatted} USD (atingiu {current_loss_threshold:.2%}) em {symbol}'
-    #                 if context:
-    #                     await self.enviar_mensagem(context, msg)
-                    
-    #             elif percentage >= target:
-    #                 print(f'Encerrando posição por GAIN! PNL: {pnl_formatted} USD (Alvo: {target:.2%})')
-    #                 await self.encerra_posicao(symbol, context)
-    #                 msg = f'GAIN de {pnl_formatted} USD (atingiu {target:.2%}) em {symbol}'
-    #                 if context:
-    #                     await self.enviar_mensagem(context, msg)
-    #             else:
-    #                 print(f"Posição {symbol} em aberto: PNL atual {percentage:.2%}. "
-    #                       f"Stop Loss em {current_loss_threshold:.2%}, Target em {target:.2%}.")
-
-    #         else:
-    #             print(f"Não foi possível obter o percentual de PNL para {symbol}. Posição pode não estar aberta ou dados inválidos.")
-
-    #     except Exception as e:
-    #         error_msg = f'Erro no gerenciamento de PNL para {symbol}: {str(e)}'
-    #         print(error_msg)
-    #         if context:
-    #             await self.enviar_mensagem(context, error_msg)
-
-    # async def fecha_pnl(self, 
-    #                 symbol: str, 
-    #                 loss: float, 
-    #                 target: float, 
-    #                 trailing_activation_percentage: Optional[float] = None,
-    #                 trailing_distance_percentage: Optional[float] = None,   
-    #                 context: Optional[CallbackContext] = None) -> None:
-    #     """
-    #     Gerencia stop loss e take profit de forma assíncrona com Trailing Stop Dinâmico.
-    #     """
-
-    #     # Inicializa os dados do trailing se ainda não estiverem prontos
-    #     if symbol not in self._highest_profit_reached:
-    #         self._highest_profit_reached[symbol] = -float('inf')
-    #         self._is_trailing_active[symbol] = False
-
-    #     try:
-    #         # Obtém os dados da posição atual
-    #         side, amount, entry_price, is_open, entry_time, percentage, pnl = await self.posicoes_abertas(symbol)
-
-    #         if percentage is None:
-    #             print(f"[{symbol}] Posição aparentemente não está aberta ou dados inválidos.")
-    #             return
-
-    #         pnl_formatted = f"{float(pnl):.2f}"
-    #         highest = self._highest_profit_reached[symbol]
-    #         trailing_ativo = self._is_trailing_active[symbol]
-
-    #         # Atualiza o maior lucro já atingido
-    #         if percentage > highest:
-    #             self._highest_profit_reached[symbol] = percentage
-    #             self._save_trailing_data()
-    #             if trailing_ativo:
-    #                 print(f"[{symbol}] Novo pico de lucro: {percentage:.2%}")
-
-    #         # Decide se trailing será ativado
-    #         if trailing_activation_percentage is not None and trailing_distance_percentage is not None:
-    #             if percentage >= trailing_activation_percentage:
-    #                 if not trailing_ativo:
-    #                     self._is_trailing_active[symbol] = True
-    #                     self._save_trailing_data()
-    #                     print(f"[{symbol}] ✅ Trailing Stop ativado! Lucro = {percentage:.2%}")
-    #                     if context:
-    #                         await self.enviar_mensagem(context, f"Trailing Stop ativado para {symbol} com lucro de {percentage:.2%}")
-
-    #                 # Calcula o trailing stop com base no pico de lucro
-    #                 calculated_trailing_sl = self._highest_profit_reached[symbol] - trailing_distance_percentage
-
-    #                 # Trailing só é usado se estiver abaixo do lucro atual
-    #                 if calculated_trailing_sl < percentage:
-    #                     current_loss_threshold = calculated_trailing_sl
-    #                 else:
-    #                     current_loss_threshold = loss
-    #             else:
-    #                 current_loss_threshold = loss
-    #         else:
-    #             current_loss_threshold = loss
-
-    #         # Evita que o "stop" fique maior que 0 (o que não é stop loss, mas lucro)
-    #         if current_loss_threshold > 0:
-    #             print(f"[{symbol}] ⚠️ Stop Loss ajustado manualmente para 0 pois valor calculado foi positivo ({current_loss_threshold:.2%})")
-    #             current_loss_threshold = 0
-
-    #         print(f"[{symbol}] 📊 PNL: {percentage:.2%} | Stop: {current_loss_threshold:.2%} | Target: {target:.2%}")
-
-    #         # Lógica de encerramento por LOSS
-    #         if percentage <= current_loss_threshold:
-    #             print(f"[{symbol}] 🚨 Encerrando por LOSS. PNL: {pnl_formatted} USD")
-    #             await self.encerra_posicao(symbol, context)
-    #             msg = f"❌ LOSS de {pnl_formatted} USD (atingiu {percentage:.2%}) em {symbol}"
-    #             if context:
-    #                 await self.enviar_mensagem(context, msg)
-
-    #         # Lógica de encerramento por GAIN
-    #         elif percentage >= target:
-    #             print(f"[{symbol}] ✅ Encerrando por GAIN. PNL: {pnl_formatted} USD")
-    #             await self.encerra_posicao(symbol, context)
-    #             msg = f"✅ GAIN de {pnl_formatted} USD (atingiu {percentage:.2%}) em {symbol}"
-    #             if context:
-    #                 await self.enviar_mensagem(context, msg)
-
-    #         else:
-    #             print(f"[{symbol}] ⏳ Posição em aberto. PNL atual: {percentage:.2%}")
-
-    #     except Exception as e:
-    #         error_msg = f"Erro no gerenciamento de PNL para {symbol}: {str(e)}"
-    #         print(error_msg)
-    #         if context:
-    #             await self.enviar_mensagem(context, error_msg)

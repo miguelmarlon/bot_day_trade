@@ -11,6 +11,7 @@ from scripts.gerenciamento_risco_assin import GerenciamentoRiscoAsync
 from strategies.clustering import SuperTrendAIClusteringAsync
 from strategies.estrategia_macd_clustering import trading_task_macd_clustering
 from strategies.estrategia_rompimento import trading_task_rompimento
+from strategies.ma_slowStochastic_combo import trading_task_ma_slow_stochastic
 from utils.binance_client import BinanceHandler
 from config.config import TELEGRAM_TOKEN_BOT_TRADE
 from scripts.prediction_model import treina_modelo, predict
@@ -37,6 +38,8 @@ async def start(update: Update, context: CallbackContext):
         "▫️ /selecionarMOEDAS – Seleciona as moedas com maior valor de mercado\n"
         "▫️ /operarXGB [timeframe] – Inicia o bot com candles de 1h, 2h, etc\n"
         "▫️ /pararXGB – Interrompe o bot\n"
+        "▫️ /operarMASlowStochastic [timeframe] – Inicia o bot com candles de 4h e 1d, etc\n"
+        "▫️ /pararMASlowStochastic – Interrompe o bot\n"
         "▫️ /operar1mBTC – Inicia o bot scalper no 1m\n"
         "▫️ /parar1mBTC – Interrompe o bot\n"
         "▫️ /operarROMPIMENTO – Inicia o bot correlação ETH\n"
@@ -67,8 +70,8 @@ async def iniciar_macd(update: Update, context: CallbackContext):
     # Extrair o número do timeframe (ex.: '4h' -> 4)
     horas = int(tf.replace('h', ''))
 
-    # Salva o timeframe no contexto
-    context.chat_data['timeframe_operacao'] = tf
+    # Salva o timeframe no contexto (usando a chave correta que a estratégia espera)
+    context.chat_data['timeframe_operacao_macd'] = tf
 
     # Cancela job anterior se existir
     for job in context.job_queue.jobs():
@@ -86,6 +89,50 @@ async def iniciar_macd(update: Update, context: CallbackContext):
 
     await update.message.reply_text(
         f"✅ Estratégia MACD Clustering ativada! TF = {tf}",
+        parse_mode="Markdown"
+    )
+
+async def ma_slowStochastic(update: Update, context: CallbackContext):
+    tf = context.args[0] if context.args else '4h'
+    
+    # Validação dos timeframes permitidos
+    timeframes_validos = ['4h', '1d']
+    if tf not in timeframes_validos:
+        await update.message.reply_text(
+            "⛔ Timeframe inválido. Escolha entre: 4h ou 1d."
+        )
+        return
+
+    # Converter timeframe para horas
+    if tf.endswith('h'):
+        horas = int(tf.replace('h', ''))
+    elif tf == '1d':
+        horas = 24
+    else:
+        await update.message.reply_text("⛔ Formato de timeframe inválido.")
+        return
+
+    # Salva o timeframe no contexto (usando chave específica para MA Slow Stochastic)
+    context.chat_data['timeframe_ma_stochastic'] = tf
+
+    # Cancela job anterior se existir
+    for job in context.job_queue.jobs():
+        if job.name == "ma_slow_stochastic_job":
+            job.schedule_removal()
+
+    # Cria o novo job
+    context.job_queue.run_repeating(
+        trading_task_ma_slow_stochastic,
+        interval=60 * 60 * horas,  # segundos * minutos * horas
+        first=5,
+        chat_id=update.effective_chat.id,
+        name="ma_slow_stochastic_job"
+    )
+
+    await update.message.reply_text(
+        f"✅ Estratégia MA Slow Stochastic ativada!\n"
+        f"⏰ Timeframe: {tf} (intervalo: {horas}h)\n"
+        f"🔄 Primeira verificação em 5 segundos",
         parse_mode="Markdown"
     )
 
@@ -409,6 +456,12 @@ async def parar_macd(update: Update, context: CallbackContext):
             job.schedule_removal()
     await update.message.reply_text("🛑 Estratégia MACD Clustering parada!")
 
+async def parar_ma_slow_stochastic(update: Update, context: CallbackContext):
+    for job in context.job_queue.jobs():
+        if job.name == "ma_slow_stochastic_job":
+            job.schedule_removal()
+    await update.message.reply_text("🛑 Estratégia MA Slow Stochastic parada!")
+
 # FUNCOES NÃO TRADING !!
 async def regime_handler(update: Update, context: CallbackContext):
     try:
@@ -570,6 +623,8 @@ def main():
         application.add_handler(CommandHandler("selecionarMOEDAS", selecionar_moedas_handler))
         application.add_handler(CommandHandler("operarXGB", iniciar_bot))
         application.add_handler(CommandHandler("pararXGB", parar_bot))
+        application.add_handler(CommandHandler("operarMASlowStochastic", ma_slowStochastic))
+        application.add_handler(CommandHandler("pararMASlowStochastic", parar_ma_slow_stochastic))
         application.add_handler(CommandHandler("regime", regime_handler))
         application.add_handler(CommandHandler("estrategias", estrategia_handler))
         application.add_handler(CommandHandler("operar1mBTC", iniciar_bot_simples))

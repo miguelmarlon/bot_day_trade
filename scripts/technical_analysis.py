@@ -67,6 +67,7 @@ def calcular_indicadores(df_candles):
     incluindo tratamento de erros e validações.
     Retorna o DataFrame com os indicadores ou None em caso de erro.
     """
+    
     if df_candles is None or df_candles.empty:
         logging.warning("Input para 'calcular_indicadores' é nulo ou vazio.")
         return None
