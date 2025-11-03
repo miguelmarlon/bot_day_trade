@@ -36,40 +36,120 @@ async def strategy_MA_SlowStochastic_Combo(binance, context, **kwargs):
     Exemplo de parâmetros:
         {'n_ma': 80, 'ma_type': 'EMA', 'k_sto': 14, 'd_sto': 21, 'dd_sto': 5}
     """
+    gerenciador_risco = None
+    symbols_processed = 0
+    symbols_with_signals = 0
+    symbols_with_errors = 0
+    
     try:
         chat_id = context.job.chat_id if hasattr(context, 'job') else context._chat_id
 
         timeframe = context.chat_data.get('timeframe_ma_stochastic', '4h')
         take_profit = 0.04
+        
+        print(f"\n{'='*60}")
+        print(f"🚀 Iniciando ciclo da estratégia MA Slow Stochastic")
+        print(f"⏰ Timeframe: {timeframe}")
+        print(f"🎯 Take Profit: {take_profit*100:.1f}%")
+        print(f"{'='*60}\n")
 
-        df_config = pd.read_csv('config/cripto_tamanho_macd.csv') 
-        df_config.dropna(inplace=True)
+        # Carrega configuração de símbolos
+        try:
+            df_config = pd.read_csv('config/cripto_tamanho_macd.csv')
+            df_config.dropna(inplace=True)
+            print(f"📋 Carregados {len(df_config)} símbolos do CSV")
+        except FileNotFoundError:
+            error_msg = "❌ Arquivo config/cripto_tamanho_macd.csv não encontrado!"
+            print(error_msg)
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=error_msg)
+            except:
+                pass
+            return
+        except Exception as csv_error:
+            error_msg = f"❌ Erro ao ler CSV: {csv_error}"
+            print(error_msg)
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=error_msg)
+            except:
+                pass
+            return
 
         gerenciador_risco = GerenciamentoRiscoAsync(binance_handler=binance)
 
-        for _, row in df_config.iterrows():
+        for idx, row in df_config.iterrows():
             symbol = row['symbol']
-            await asyncio.sleep(2) 
             posicao = row['tamanho']
             posicao_max = posicao
             
-            binance.client.set_leverage(10, symbol)
-            binance.client.set_margin_mode("ISOLATED", symbol)
-            await context.bot.send_message(chat_id=chat_id, text=f"🔍 Analisando {symbol}...")
+            # Validação básica do símbolo
+            if not symbol or pd.isna(symbol) or not isinstance(symbol, str):
+                print(f"⚠️ Símbolo inválido na linha {idx}: {symbol}")
+                symbols_with_errors += 1
+                continue
+                
+            # Validação do tamanho da posição
+            try:
+                posicao_float = float(posicao)
+                if posicao_float <= 0:
+                    print(f"⚠️ Tamanho de posição inválido para {symbol}: {posicao}")
+                    symbols_with_errors += 1
+                    continue
+            except (ValueError, TypeError):
+                print(f"⚠️ Tamanho de posição não numérico para {symbol}: {posicao}")
+                symbols_with_errors += 1
+                continue
             
-            # Coleta de candles
-            limit = 200
-            timeframe_in_ms = binance.client.parse_timeframe(timeframe) * 1000
-            now = int(time.time() * 1000)  # timestamp atual em milissegundos
-            since = now - (limit * timeframe_in_ms) 
-            bars = await binance.client.fetch_ohlcv (symbol=symbol, since=since, timeframe= timeframe, limit=limit)
-            df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-            df.set_index('timestamp', inplace=True)
+            symbols_processed += 1
+            
+            print(f"🔍 Analisando {symbol} (posição: {posicao_max})...")
+            
+            # Aguarda entre requisições para evitar rate limiting
+            await asyncio.sleep(2)
+            
+            # Configura alavancagem e margem com tratamento de erros
+            try:
+                binance.client.set_leverage(10, symbol)
+                binance.client.set_margin_mode("ISOLATED", symbol)
+            except Exception as config_error:
+                print(f"⚠️ Erro ao configurar alavancagem/margem para {symbol}: {config_error}")
+                # Não é crítico, continua com as configurações padrão
+            
+            # Notifica no Telegram
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=f"🔍 Analisando {symbol}...")
+            except Exception as notify_error:
+                print(f"Erro ao notificar análise de {symbol}: {notify_error}")
+
+            # Obtém dados de candles com timeout de 30 segundos
+            try:
+                df = await asyncio.wait_for(
+                    binance.obter_dados_candles(symbol, timeframe=timeframe, limit=300),
+                    timeout=30.0
+                )
+            except asyncio.TimeoutError:
+                error_msg = f"⏱️ Timeout ao obter dados para {symbol}"
+                print(error_msg)
+                try:
+                    await context.bot.send_message(chat_id=chat_id, text=error_msg)
+                except:
+                    pass
+                continue
+            except Exception as candle_error:
+                error_msg = f"⚠️ Erro ao obter dados para {symbol}: {str(candle_error)[:100]}"
+                print(error_msg)
+                try:
+                    await context.bot.send_message(chat_id=chat_id, text=error_msg)
+                except:
+                    pass
+                continue
 
             if df is None or df.empty:
                 print(f"⚠️ DataFrame vazio para {symbol}")
-                await context.bot.send_message(chat_id=chat_id, text=f"⚠️ DataFrame vazio para {symbol}")
+                try:
+                    await context.bot.send_message(chat_id=chat_id, text=f"⚠️ DataFrame vazio para {symbol}")
+                except:
+                    pass
                 continue
 
             required_cols = ['open', 'high', 'low', 'close', 'volume']
@@ -79,26 +159,49 @@ async def strategy_MA_SlowStochastic_Combo(binance, context, **kwargs):
                 await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Erro de dados em {symbol}")
                 continue
             
+            # Obtém preço atual com timeout e retry
+            price = None
             try:
-                trades = await binance.client.fetch_trades (symbol)
-                if not trades:
-                    print(f"[AVISO] Nenhum trade recente encontrado para {symbol}")
-                    price = None
-                else:
-                    last_trade = trades[-1]
-                    if 'price' not in last_trade or last_trade['price'] is None:
-                        print(f"[AVISO] Último trade de {symbol} não possui preço válido.")
-                        price = None
-                    else:
-                        price_raw = last_trade['price']
-                        price_str = binance.client.price_to_precision(symbol, price_raw)
-                        price = float(price_str)
+                for attempt in range(3):  # 3 tentativas
+                    try:
+                        trades = await asyncio.wait_for(
+                            binance.client.fetch_trades(symbol),
+                            timeout=10.0
+                        )
+                        
+                        if not trades:
+                            print(f"[AVISO] Nenhum trade recente encontrado para {symbol} (tentativa {attempt+1}/3)")
+                            if attempt < 2:
+                                await asyncio.sleep(2)
+                                continue
+                            price = None
+                        else:
+                            last_trade = trades[-1]
+                            if 'price' not in last_trade or last_trade['price'] is None:
+                                print(f"[AVISO] Último trade de {symbol} não possui preço válido.")
+                                price = None
+                            else:
+                                price_raw = last_trade['price']
+                                price_str = binance.client.price_to_precision(symbol, price_raw)
+                                price = float(price_str)
+                                break  # Sucesso, sai do loop
+                                
+                    except asyncio.TimeoutError:
+                        print(f"[TIMEOUT] Tentativa {attempt+1}/3 para obter trades de {symbol}")
+                        if attempt < 2:
+                            await asyncio.sleep(2)
+                        continue
+                        
             except Exception as e:
-                print(f"[ERRO] Falha ao obter ou formatar o preço para {symbol}: {e}")
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"⚠️ [ERRO] Falha ao obter preço de {symbol}"
-                )
+                error_detail = f"[ERRO] Falha ao obter ou formatar o preço para {symbol}: {e}"
+                print(error_detail)
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=f"⚠️ Erro ao obter preço de {symbol}: {str(e)[:100]}"
+                    )
+                except Exception as notify_error:
+                    print(f"Erro ao notificar falha de preço: {notify_error}")
                 continue  # Pula para o próximo símbolo se não conseguir obter o preço
 
             n_ma = kwargs.get("n_ma", 80)
@@ -164,6 +267,7 @@ async def strategy_MA_SlowStochastic_Combo(binance, context, **kwargs):
                     sto_short_trigger = (last_sto_diff < 0) and (last_sto_diff_prev >= 0)
 
                     if is_uptrend and sto_long_trigger: #and xgb_long:
+                        symbols_with_signals += 1
                         await binance.client.cancel_all_orders(symbol)
 
                         # Calcula stop loss e take profit baseados no modelo de regressão
@@ -179,29 +283,57 @@ async def strategy_MA_SlowStochastic_Combo(binance, context, **kwargs):
                             params={'reduceOnly': False}
                         )
 
+                        # 🛡️ CRÍTICO: Cria stops iniciais IMEDIATAMENTE
+                        # Calcula preços de stop
+                        stop_loss_price = price * (1 - stop_loss_percent)
+                        take_profit_price = price * (1 + take_profit)
+                        
+                        try:
+                            # Cria ordem de Stop Loss
+                            await binance.client.create_order(
+                                symbol=symbol,
+                                side='sell',
+                                type='STOP_MARKET',
+                                amount=posicao,
+                                params={'stopPrice': stop_loss_price, 'reduceOnly': True}
+                            )
+                            
+                            # Cria ordem de Take Profit
+                            await binance.client.create_order(
+                                symbol=symbol,
+                                side='sell',
+                                type='TAKE_PROFIT_MARKET',
+                                amount=posicao,
+                                params={'stopPrice': take_profit_price, 'reduceOnly': True}
+                            )
+                            
+                            print(f"[{symbol}] ✅ Stops iniciais criados | SL: {stop_loss_price:.8f} | TP: {take_profit_price:.8f}")
+                        except Exception as stop_error:
+                            print(f"[{symbol}] ❌ Erro ao criar stops: {stop_error}")
+                            await context.bot.send_message(
+                                chat_id=chat_id,
+                                text=f"⚠️ Erro ao criar stops para {symbol}: {str(stop_error)[:100]}",
+                                parse_mode='Markdown'
+                            )
+                        
                         await context.bot.send_message(
                             chat_id=chat_id,
                             text=f"🚀 Abrindo *LONG* em {symbol}\n"
                                  f"💵 Preço: {price:.2f}\n"
-                                 f"🎯 TP: {take_profit*100:.1f}%\n"
-                                 f"🛑 SL: {stop_loss_percent*100:.1f}%\n"
+                                 f"🎯 TP: {take_profit*100:.1f}% (${take_profit_price:.2f})\n"
+                                 f"🛑 SL: {stop_loss_percent*100:.1f}% (${stop_loss_price:.2f})\n"
                                  f"📊 Quantidade: {posicao}\n"
-                                 f"🤖 Stop Dinâmico ativará em 50% do progresso",
+                                 f"🛡️ Stops criados | 🔄 Monitor ativo para trailing",
                             parse_mode='Markdown'
                         )
                         
-                        # Agenda o stop dinâmico para monitorar a posição
-                        await gerenciador_risco.stop_dinamico(
-                            symbol=symbol,
-                            take_profit=take_profit,
-                            stop_loss=stop_loss_percent,
-                            context=context
-                        )
+                        # Monitor de Risco fará trailing stop se ativado
+                        # Use: /iniciarMonitorRisco no Telegram
                         
                     elif is_downtrend and sto_short_trigger: #and xgb_short:
+                        symbols_with_signals += 1
                         await binance.client.cancel_all_orders(symbol)
 
-                        # Calcula stop loss e take profit baseados no modelo de regressão
                         stop_loss_percent = 0.02  # 2% de stop loss
                         
                         print(f"🚀 Abrindo SHORT em {symbol} | Preço: {price}")
@@ -215,68 +347,156 @@ async def strategy_MA_SlowStochastic_Combo(binance, context, **kwargs):
                             params={'reduceOnly': False}
                         )
 
+                        # 🛡️ CRÍTICO: Cria stops iniciais IMEDIATAMENTE
+                        # Calcula preços de stop
+                        # Para SHORT: SL acima do preço, TP abaixo do preço
+                        stop_loss_price = price * (1 + stop_loss_percent)
+                        take_profit_price = price * (1 - take_profit)
+                        
+                        try:
+                            # Cria ordem de Stop Loss (compra acima do preço)
+                            await binance.client.create_order(
+                                symbol=symbol,
+                                side='buy',
+                                type='STOP_MARKET',
+                                amount=posicao,
+                                params={'stopPrice': stop_loss_price, 'reduceOnly': True}
+                            )
+                            
+                            # Cria ordem de Take Profit (compra abaixo do preço)
+                            await binance.client.create_order(
+                                symbol=symbol,
+                                side='buy',
+                                type='TAKE_PROFIT_MARKET',
+                                amount=posicao,
+                                params={'stopPrice': take_profit_price, 'reduceOnly': True}
+                            )
+                            
+                            print(f"[{symbol}] ✅ Stops iniciais criados | SL: {stop_loss_price:.8f} | TP: {take_profit_price:.8f}")
+                        except Exception as stop_error:
+                            print(f"[{symbol}] ❌ Erro ao criar stops: {stop_error}")
+                            await context.bot.send_message(
+                                chat_id=chat_id,
+                                text=f"⚠️ Erro ao criar stops para {symbol}: {str(stop_error)[:100]}",
+                                parse_mode='Markdown'
+                            )
+                        
                         await context.bot.send_message(
                             chat_id=chat_id,
                             text=f"🚀 Abrindo *SHORT* em {symbol}\n"
                                  f"💵 Preço: {price:.2f}\n"
-                                 f"🎯 TP: {take_profit*100:.1f}%\n"
-                                 f"🛑 SL: {stop_loss_percent*100:.1f}%\n"
+                                 f"🎯 TP: {take_profit*100:.1f}% (${take_profit_price:.2f})\n"
+                                 f"🛑 SL: {stop_loss_percent*100:.1f}% (${stop_loss_price:.2f})\n"
                                  f"📊 Quantidade: {posicao}\n"
-                                 f"🤖 Stop Dinâmico ativará em 50% do progresso",
+                                 f"🛡️ Stops criados | 🔄 Monitor ativo para trailing",
                             parse_mode='Markdown'
                         )
                         
-                        # Agenda o stop dinâmico para monitorar a posição
-                        await gerenciador_risco.stop_dinamico(
-                            symbol=symbol,
-                            take_profit=take_profit,
-                            stop_loss=stop_loss_percent,
-                            context=context
-                        )
+                        # Monitor de Risco fará trailing stop se ativado
+                        # Use: /iniciarMonitorRisco no Telegram
                     else:
                         # Sem sinal de entrada
                         print(f"⏸️ Aguardando sinal em {symbol} | Uptrend: {is_uptrend} | Long Trigger: {sto_long_trigger} | Short Trigger: {sto_short_trigger}")
                                     
                 except Exception as e:
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=f"⚠️ Erro ao processar {symbol}: {str(e)[:100]}"
-                    )
-                    print(f"❌ Erro ao processar {symbol}: {e}")
+                    error_detail = f"❌ Erro ao processar {symbol}: {e}"
+                    print(error_detail)
                     import traceback
                     print(traceback.format_exc())
+                    
+                    try:
+                        await context.bot.send_message(
+                            chat_id=chat_id,
+                            text=f"⚠️ Erro ao processar {symbol}: {str(e)[:150]}"
+                        )
+                    except Exception as notify_error:
+                        print(f"Erro ao notificar falha de processamento: {notify_error}")
                     continue
 
+        # Resumo do ciclo ao final
+        print(f"\n{'='*60}")
+        print(f"📊 RESUMO DO CICLO")
+        print(f"✅ Símbolos processados: {symbols_processed}")
+        print(f"🎯 Sinais detectados: {symbols_with_signals}")
+        print(f"❌ Erros encontrados: {symbols_with_errors}")
+        print(f"{'='*60}\n")
+        
+        # Envia resumo para o Telegram
+        try:
+            summary_msg = (
+                f"📊 **Ciclo Concluído**\n"
+                f"✅ Processados: {symbols_processed}\n"
+                f"🎯 Sinais: {symbols_with_signals}\n"
+                f"❌ Erros: {symbols_with_errors}"
+            )
+            await context.bot.send_message(chat_id=chat_id, text=summary_msg, parse_mode='Markdown')
+        except Exception as summary_error:
+            print(f"Erro ao enviar resumo: {summary_error}")
+
     except Exception as e:
-        print(f"❌ Erro crítico na estratégia MA_SlowStochastic_Combo: {e}")
+        error_msg = f"❌ Erro crítico na estratégia MA_SlowStochastic_Combo: {e}"
+        print(error_msg)
         import traceback
         print(traceback.format_exc())
+        
         if context:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"❌ Erro crítico na estratégia: {str(e)[:100]}"
-            )
+            try:
+                chat_id = context.job.chat_id if hasattr(context, 'job') else context._chat_id
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"❌ Erro crítico na estratégia: {str(e)[:200]}"
+                )
+            except Exception as notify_error:
+                print(f"Erro ao notificar erro crítico: {notify_error}")
     
     finally:
-        # Fecha o gerenciador de risco
-        if 'gerenciador_risco' in locals():
-            await gerenciador_risco.close()
+        # Fecha o gerenciador de risco se foi criado
+        if gerenciador_risco:
+            try:
+                await gerenciador_risco.close()
+                print("✅ Gerenciador de risco fechado")
+            except Exception as close_error:
+                print(f"⚠️ Erro ao fechar gerenciador: {close_error}")
 
 async def trading_task_ma_slow_stochastic(context):
+    binance = None
     try:
-        binance = await BinanceHandler.create(testnet=True)
         chat_id = context.job.chat_id
         context._chat_id = chat_id
         
-        await strategy_MA_SlowStochastic_Combo(binance, context)
+        # Notifica o início da estratégia ANTES de executar
         await context.bot.send_message(chat_id=chat_id, text="🤖 Iniciando estratégia MA Slow Stochastic Combo...")
-        print("🤖 Iniciando estratégia MA Slow Stochastic Combo...")
+        
+        # Cria conexão com Binance (testnet=False para produção, True para testes)
+        binance = await BinanceHandler.create(testnet=True)
+        
+        # Executa a estratégia passando a conexão
+        await strategy_MA_SlowStochastic_Combo(binance, context)
+        
+        await context.bot.send_message(chat_id=chat_id, text="✅ Ciclo da estratégia MA Slow Stochastic concluído com sucesso!")
 
     except Exception as e:
-        await context.bot.send_message(chat_id=context.job.chat_id, text=f"❌ Erro no MACD Clustering: {e}")
+        error_msg = f"❌ Erro crítico no MA Slow Stochastic: {str(e)[:200]}"
+        print(error_msg)
+        import traceback
+        print(traceback.format_exc())
+        
+        try:
+            await context.bot.send_message(
+                chat_id=context.job.chat_id if hasattr(context, 'job') else context._chat_id, 
+                text=error_msg
+            )
+        except Exception as notify_error:
+            print(f"Erro ao enviar notificação: {notify_error}")
     
     finally:
-        await binance.close_connection()
+        # Garante fechamento da conexão mesmo em caso de erro
+        if binance:
+            try:
+                await binance.close_connection()
+                print("✅ Conexão Binance fechada com sucesso")
+            except Exception as close_error:
+                print(f"⚠️ Erro ao fechar conexão: {close_error}")
 
 
 # # ============================================

@@ -16,6 +16,7 @@ from utils.binance_client import BinanceHandler
 from config.config import TELEGRAM_TOKEN_BOT_TRADE
 from scripts.prediction_model import treina_modelo, predict
 from scripts.cryptos_select import selecionar_cryptos_sem_notas, calcular_tamanho_operacoes_sem_notas
+from scripts.monitor_risk import monitor_risk_management  # Importa monitor de risco
 import logging
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext
@@ -34,8 +35,7 @@ async def start(update: Update, context: CallbackContext):
     print("Bot iniciado com sucesso!")
     await update.message.reply_text(
         "👋 Olá! Eu sou o *Falcon AI Bot*!\n\n"
-        "Comandos disponíveis:\n"
-        "▫️ /selecionarMOEDAS – Seleciona as moedas com maior valor de mercado\n"
+        "🤖 *Estratégias de Trading:*\n"
         "▫️ /operarXGB [timeframe] – Inicia o bot com candles de 1h, 2h, etc\n"
         "▫️ /pararXGB – Interrompe o bot\n"
         "▫️ /operarMASlowStochastic [timeframe] – Inicia o bot com candles de 4h e 1d, etc\n"
@@ -45,12 +45,17 @@ async def start(update: Update, context: CallbackContext):
         "▫️ /operarROMPIMENTO – Inicia o bot correlação ETH\n"
         "▫️ /pararROMPIMENTO – Interrompe o bot correlação ETH\n"
         "▫️ /operarMACD – Inicia o bot da estratégia de MACD + Clustering\n"
-        "▫️ /pararMACD – Interrompe o bot da estratégia de MACD + Clustering\n"              
+        "▫️ /pararMACD – Interrompe o bot da estratégia de MACD + Clustering\n\n"
+        "🛡️ *Gerenciamento de Risco:*\n"
+        "▫️ /iniciarMonitorRisco – Ativa monitor de risco (1 min)\n"
+        "▫️ /pararMonitorRisco – Desativa monitor de risco\n\n"              
+        "📊 *Análises:*\n"
+        "▫️ /selecionarMOEDAS – Seleciona as moedas com maior valor de mercado\n"
         "▫️ /regime [timeframe] – Diagnóstico do regime de mercado\n"
         "▫️ /estrategias – Exibe a lógica das estratégias disponíveis\n"
         "▫️ /supertrend [cripto] [timeframe] – Clustering Supertrend\n"
-        "▫️ /eventos Eventos macroeconômicos relevantes do dia"
-        "▫️ /noticias Classificador de notícias",
+        "▫️ /eventos – Eventos macroeconômicos relevantes do dia\n"
+        "▫️ /noticias – Classificador de notícias",
         parse_mode='Markdown'
     )
 
@@ -462,6 +467,48 @@ async def parar_ma_slow_stochastic(update: Update, context: CallbackContext):
             job.schedule_removal()
     await update.message.reply_text("🛑 Estratégia MA Slow Stochastic parada!")
 
+# MONITOR DE RISCO - PROCESSO INDEPENDENTE !!
+
+async def iniciar_monitor_risco(update: Update, context: CallbackContext):
+    """
+    Inicia o monitor de gerenciamento de risco que roda a cada 1 minuto.
+    Monitora TODAS as posições abertas e aplica stop dinâmico automaticamente.
+    """
+    # Cancela job anterior se existir
+    for job in context.job_queue.jobs():
+        if job.name == "risk_monitor_job":
+            job.schedule_removal()
+    
+    # Cria o novo job - roda a cada 60 segundos
+    context.job_queue.run_repeating(
+        monitor_risk_management,
+        interval=60,  # 1 minuto
+        first=5,  # Começa após 5 segundos
+        chat_id=update.effective_chat.id,
+        name="risk_monitor_job"
+    )
+    
+    await update.message.reply_text(
+        "✅ *Monitor de Risco Ativado!*\n\n"
+        "🔄 Verificando posições abertas a cada 1 minuto\n"
+        "📊 Aplicando stop dinâmico automaticamente\n"
+        "⚡ Funciona com TODAS as estratégias simultaneamente",
+        parse_mode="Markdown"
+    )
+
+async def parar_monitor_risco(update: Update, context: CallbackContext):
+    """Para o monitor de gerenciamento de risco"""
+    job_removed = False
+    for job in context.job_queue.jobs():
+        if job.name == "risk_monitor_job":
+            job.schedule_removal()
+            job_removed = True
+    
+    if job_removed:
+        await update.message.reply_text("🛑 Monitor de Risco parado!")
+    else:
+        await update.message.reply_text("⚠️ Monitor de Risco não estava ativo")
+
 # FUNCOES NÃO TRADING !!
 async def regime_handler(update: Update, context: CallbackContext):
     try:
@@ -636,6 +683,8 @@ def main():
         application.add_handler(CommandHandler("operarMACD", iniciar_macd))
         application.add_handler(CommandHandler("pararMACD", parar_macd))
         application.add_handler(CommandHandler("noticias", noticias_handler))
+        application.add_handler(CommandHandler("iniciarMonitorRisco", iniciar_monitor_risco))
+        application.add_handler(CommandHandler("pararMonitorRisco", parar_monitor_risco))
 
         # Inicia o bot
         application.run_polling()

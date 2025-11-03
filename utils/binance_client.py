@@ -73,7 +73,8 @@ class BinanceHandler:
                     'defaultType': 'future',
                     # Esta é a opção chave para forçar a testnet de futuros
                     'testnet': True, 
-                    'adjustForTimeDifference': True
+                    'adjustForTimeDifference': True,
+                    'recvWindow': 60000
                 }
             })
             
