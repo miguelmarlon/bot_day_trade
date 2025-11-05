@@ -119,7 +119,6 @@ async def _notify_pnl_change(
         # Atualiza cache
         _last_notified_pnl[symbol] = current_pnl_percentage
 
-
 async def monitor_risk_management(context: CallbackContext) -> None:
     """
     Job que monitora todas as posições abertas e aplica gerenciamento de risco.

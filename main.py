@@ -16,7 +16,7 @@ from utils.binance_client import BinanceHandler
 from config.config import TELEGRAM_TOKEN_BOT_TRADE
 from scripts.prediction_model import treina_modelo, predict
 from scripts.cryptos_select import selecionar_cryptos_sem_notas, calcular_tamanho_operacoes_sem_notas
-from scripts.monitor_risk import monitor_risk_management  # Importa monitor de risco
+from scripts.monitor_risk import monitor_risk_management
 import logging
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext

@@ -784,8 +784,19 @@ class GerenciamentoRiscoAsync:
                 
                 progress_percent = ((total_distance - distance_to_tp) / total_distance) * 100
                 
-                msg = f'📊 {symbol} LONG: {price_var:.2f}% | Progresso até TP: {progress_percent:.1f}%'
-                print(msg)
+                # Inicializa o maior preço atingido (para trailing stop em LONG)
+                if symbol not in self._highest_price_reached:
+                    self._highest_price_reached[symbol] = mark_price
+                
+                # Atualiza o maior preço atingido (para LONG, quanto maior, melhor)
+                if mark_price > self._highest_price_reached[symbol]:
+                    self._highest_price_reached[symbol] = mark_price
+                    print(f"[{symbol}] 📈 Novo maior preço atingido: {mark_price:.8f}")
+                
+                highest_price = self._highest_price_reached[symbol]
+                
+                # msg = f'📊 {symbol} LONG: {price_var:.2f}% | Progresso até TP: {progress_percent:.1f}% | Maior preço: {highest_price:.8f}'
+                # print(msg)
                 if context:
                     try:
                         await self.enviar_mensagem(context, msg)
@@ -795,94 +806,113 @@ class GerenciamentoRiscoAsync:
                 # CONDIÇÃO AJUSTADA: Ativa quando atingir 50% do caminho até o take profit
                 # Isso torna o trailing stop mais agressivo e protege lucros mais cedo
                 if progress_percent >= 50:
-                    print(f"[{symbol}] 🔄 Ajustando stops - Progresso: {progress_percent:.1f}%")
+                    # Verifica se já existe um trailing stop ativo
+                    current_stop_loss_in_order = None
+                    if symbol in self._current_trailing_stop_price:
+                        current_stop_loss_in_order = self._current_trailing_stop_price[symbol]
                     
-                    # Marca trailing como ativo
-                    self._is_trailing_active[symbol] = True
-                    self._highest_price_reached[symbol] = mark_price
+                    # Calcula novo stop loss baseado no MAIOR PREÇO atingido, não no preço atual
+                    # Isso garante que o SL só sobe (protege lucros) e nunca desce (aumenta risco)
+                    new_stop_loss_price = highest_price * (1 - stop_loss)
+                    new_take_profit_price = highest_price * (1 + take_profit)
                     
-                    # Cancela ordens anteriores com timeout
-                    try:
-                        await asyncio.wait_for(
-                            self.binance_handler.client.cancel_all_orders(symbol),
-                            timeout=10.0
-                        )
-                    except asyncio.TimeoutError:
-                        print(f"[{symbol}] ⏱️ Timeout ao cancelar ordens")
-                    except Exception as cancel_error:
-                        print(f"[{symbol}] ⚠️ Erro ao cancelar ordens: {cancel_error}")
+                    # CRÍTICO: Só ajusta o stop loss se ele for MAIOR que o anterior
+                    # Para LONG: queremos que o SL SUBA conforme o preço sobe
+                    should_update = False
                     
-                    # Usa mark_price como preço atual (mais confiável que último trade)
-                    current_price = mark_price
+                    if current_stop_loss_in_order is None:
+                        # Primeira vez ativando trailing stop
+                        should_update = True
+                        print(f"[{symbol}] 🔄 Ativando trailing stop pela primeira vez - Progresso: {progress_percent:.1f}%")
+                    elif new_stop_loss_price > current_stop_loss_in_order:
+                        # SL está subindo (bom para LONG - protege mais lucro)
+                        should_update = True
+                        print(f"[{symbol}] 📈 Stop Loss subindo: {current_stop_loss_in_order:.8f} → {new_stop_loss_price:.8f}")
+                    else:
+                        # SL tentaria descer (RUIM para LONG - não permitir!)
+                        print(f"[{symbol}] ⚠️ Stop Loss não atualizado (tentaria descer de {current_stop_loss_in_order:.8f} para {new_stop_loss_price:.8f})")
+                        print(f"[{symbol}] ℹ️ Mantendo SL em {current_stop_loss_in_order:.8f} | Preço atual: {mark_price:.8f} | Maior preço: {highest_price:.8f}")
                     
-                    # Calcula novos stops baseados no preço atual
-                    new_stop_loss_price = current_price * (1 - stop_loss)
-                    new_take_profit_price = current_price * (1 + take_profit)
-                    
-                    print(f"[{symbol}] 📍 Preço atual: {current_price:.8f}")
-                    print(f"[{symbol}] 🛑 Novo Stop Loss: {new_stop_loss_price:.8f} ({-stop_loss*100:.2f}%)")
-                    print(f"[{symbol}] 🎯 Novo Take Profit: {new_take_profit_price:.8f} ({take_profit*100:.2f}%)")
+                    if should_update:
+                        # Marca trailing como ativo
+                        self._is_trailing_active[symbol] = True
+                        
+                        # Cancela ordens anteriores com timeout
+                        try:
+                            await asyncio.wait_for(
+                                self.binance_handler.client.cancel_all_orders(symbol),
+                                timeout=10.0
+                            )
+                        except asyncio.TimeoutError:
+                            print(f"[{symbol}] ⏱️ Timeout ao cancelar ordens")
+                        except Exception as cancel_error:
+                            print(f"[{symbol}] ⚠️ Erro ao cancelar ordens: {cancel_error}")
+                        
+                        print(f"[{symbol}] 📍 Preço atual: {mark_price:.8f}")
+                        print(f"[{symbol}] 📍 Maior preço atingido: {highest_price:.8f}")
+                        print(f"[{symbol}] 🛑 Novo Stop Loss: {new_stop_loss_price:.8f} ({-stop_loss*100:.2f}%)")
+                        print(f"[{symbol}] 🎯 Novo Take Profit: {new_take_profit_price:.8f} ({take_profit*100:.2f}%)")
 
-                    try:
-                        # Cria ordem de Stop Loss com timeout
-                        await asyncio.wait_for(
-                            self.binance_handler.client.create_order(
-                                symbol=symbol, 
-                                side='sell', 
-                                type='STOP_MARKET',
-                                amount=amount, 
-                                params={'stopPrice': new_stop_loss_price, 'reduceOnly': True}
-                            ),
-                            timeout=15.0
-                        )
+                        try:
+                            # Cria ordem de Stop Loss com timeout
+                            await asyncio.wait_for(
+                                self.binance_handler.client.create_order(
+                                    symbol=symbol, 
+                                    side='sell', 
+                                    type='STOP_MARKET',
+                                    amount=amount, 
+                                    params={'stopPrice': new_stop_loss_price, 'reduceOnly': True}
+                                ),
+                                timeout=15.0
+                            )
+                            
+                            # Cria ordem de Take Profit com timeout
+                            await asyncio.wait_for(
+                                self.binance_handler.client.create_order(
+                                    symbol=symbol, 
+                                    side='sell', 
+                                    type='TAKE_PROFIT_MARKET',
+                                    amount=amount, 
+                                    params={'stopPrice': new_take_profit_price, 'reduceOnly': True}
+                                ),
+                                timeout=15.0
+                            )
+                            
+                            # Salva estado de trailing
+                            self._current_trailing_stop_price[symbol] = new_stop_loss_price
+                            self._save_trailing_data()
+                            
+                            msg = f'✅ Stops atualizados para LONG em {symbol}\n' \
+                                  f'🛑 SL: {new_stop_loss_price:.8f} (baseado no maior preço: {highest_price:.8f})\n' \
+                                  f'🎯 TP: {new_take_profit_price:.8f}'
+                            print(msg)
+                            if context:
+                                try:
+                                    await self.enviar_mensagem(context, msg)
+                                except Exception as notify_error:
+                                    print(f"[{symbol}] Erro ao notificar atualização de stops: {notify_error}")
                         
-                        # Cria ordem de Take Profit com timeout
-                        await asyncio.wait_for(
-                            self.binance_handler.client.create_order(
-                                symbol=symbol, 
-                                side='sell', 
-                                type='TAKE_PROFIT_MARKET',
-                                amount=amount, 
-                                params={'stopPrice': new_take_profit_price, 'reduceOnly': True}
-                            ),
-                            timeout=15.0
-                        )
-                        
-                        # Salva estado de trailing
-                        self._current_trailing_stop_price[symbol] = new_stop_loss_price
-                        self._save_trailing_data()
-                        
-                        msg = f'✅ Stops atualizados para LONG em {symbol}\n' \
-                              f'🛑 SL: {new_stop_loss_price:.8f}\n' \
-                              f'🎯 TP: {new_take_profit_price:.8f}'
-                        print(msg)
-                        if context:
-                            try:
-                                await self.enviar_mensagem(context, msg)
-                            except Exception as notify_error:
-                                print(f"[{symbol}] Erro ao notificar atualização de stops: {notify_error}")
-                    
-                    except asyncio.TimeoutError:
-                        error_msg = f"⏱️ Timeout ao criar ordens de stop para {symbol}"
-                        print(error_msg)
-                        if context:
-                            try:
-                                await self.enviar_mensagem(context, error_msg)
-                            except:
-                                pass
-                                
-                    except Exception as order_error:
-                        error_msg = f"❌ Erro ao criar ordens para {symbol}: {str(order_error)[:150]}"
-                        print(error_msg)
-                        import traceback
-                        print(traceback.format_exc())
-                        if context:
-                            try:
-                                await self.enviar_mensagem(context, error_msg)
-                            except:
-                                pass
+                        except asyncio.TimeoutError:
+                            error_msg = f"⏱️ Timeout ao criar ordens de stop para {symbol}"
+                            print(error_msg)
+                            if context:
+                                try:
+                                    await self.enviar_mensagem(context, error_msg)
+                                except:
+                                    pass
+                                    
+                        except Exception as order_error:
+                            error_msg = f"❌ Erro ao criar ordens para {symbol}: {str(order_error)[:150]}"
+                            print(error_msg)
+                            import traceback
+                            print(traceback.format_exc())
+                            if context:
+                                try:
+                                    await self.enviar_mensagem(context, error_msg)
+                                except:
+                                    pass
                 else:
-                    print(f"[{symbol}] ⏸️ Aguardando progresso de 50% (atual: {progress_percent:.1f}%)")
+                    print(f"[{symbol}] ⏸️ Aguardando progresso de 50% para LONG (atual: {progress_percent:.1f}%)")
 
             elif side == 'short':
                 # Calcula variação de preço em relação à entrada (SHORT: lucro quando preço cai)
@@ -899,105 +929,134 @@ class GerenciamentoRiscoAsync:
                 
                 progress_percent = ((total_distance - distance_to_tp) / total_distance) * 100
                 
-                msg = f'📊 {symbol} SHORT: {price_var:.2f}% | Progresso até TP: {progress_percent:.1f}%'
-                print(msg)
+                # Inicializa o menor preço atingido (para trailing stop em SHORT)
+                if symbol not in self._highest_price_reached:
+                    self._highest_price_reached[symbol] = mark_price
+                
+                # Atualiza o menor preço atingido (para SHORT, quanto menor, melhor)
+                if mark_price < self._highest_price_reached[symbol]:
+                    self._highest_price_reached[symbol] = mark_price
+                    print(f"[{symbol}] 📉 Novo menor preço atingido: {mark_price:.8f}")
+                
+                lowest_price = self._highest_price_reached[symbol]
+                
+                # msg = f'📊 {symbol} SHORT: {price_var:.2f}% | Progresso até TP: {progress_percent:.1f}% | Menor preço: {lowest_price:.8f}'
+                # print(msg)
                 if context:
                     try:
                         await self.enviar_mensagem(context, msg)
                     except Exception as notify_error:
                         print(f"[{symbol}] Erro ao enviar mensagem de progresso: {notify_error}")
 
-                # CONDIÇÃO AJUSTADA: Ativa quando atingir 50% do caminho até o take profit
-                if progress_percent >= 50:
-                    print(f"[{symbol}] 🔄 Ajustando stops - Progresso: {progress_percent:.1f}%")
+                # CONDIÇÃO AJUSTADA: Ativa quando atingir 25% do caminho até o take profit
+                if progress_percent >= 25:
+                    # Verifica se já existe um trailing stop ativo
+                    current_stop_loss_in_order = None
+                    if symbol in self._current_trailing_stop_price:
+                        current_stop_loss_in_order = self._current_trailing_stop_price[symbol]
                     
-                    # Marca trailing como ativo
-                    self._is_trailing_active[symbol] = True
-                    self._highest_price_reached[symbol] = mark_price
+                    # Calcula novo stop loss baseado no MENOR PREÇO atingido, não no preço atual
+                    # Isso garante que o SL só desce (protege lucros) e nunca sobe (aumenta risco)
+                    new_stop_loss_price = lowest_price * (1 + stop_loss)
+                    new_take_profit_price = lowest_price * (1 - take_profit)
                     
-                    # Cancela ordens anteriores com timeout
-                    try:
-                        await asyncio.wait_for(
-                            self.binance_handler.client.cancel_all_orders(symbol),
-                            timeout=10.0
-                        )
-                    except asyncio.TimeoutError:
-                        print(f"[{symbol}] ⏱️ Timeout ao cancelar ordens no SHORT")
-                    except Exception as cancel_error:
-                        print(f"[{symbol}] ⚠️ Erro ao cancelar ordens no SHORT: {cancel_error}")
+                    # CRÍTICO: Só ajusta o stop loss se ele for MENOR que o anterior
+                    # Para SHORT: queremos que o SL DESÇA conforme o preço desce
+                    should_update = False
                     
-                    # Usa mark_price como preço atual
-                    current_price = mark_price
+                    if current_stop_loss_in_order is None:
+                        # Primeira vez ativando trailing stop
+                        should_update = True
+                        print(f"[{symbol}] 🔄 Ativando trailing stop pela primeira vez - Progresso: {progress_percent:.1f}%")
+                    elif new_stop_loss_price < current_stop_loss_in_order:
+                        # SL está descendo (bom para SHORT - protege mais lucro)
+                        should_update = True
+                        print(f"[{symbol}] 📉 Stop Loss descendo: {current_stop_loss_in_order:.8f} → {new_stop_loss_price:.8f}")
+                    else:
+                        # SL tentaria subir (RUIM para SHORT - não permitir!)
+                        print(f"[{symbol}] ⚠️ Stop Loss não atualizado (tentaria subir de {current_stop_loss_in_order:.8f} para {new_stop_loss_price:.8f})")
+                        print(f"[{symbol}] ℹ️ Mantendo SL em {current_stop_loss_in_order:.8f} | Preço atual: {mark_price:.8f} | Menor preço: {lowest_price:.8f}")
                     
-                    # Calcula novos stops baseados no preço atual
-                    # Para SHORT: stop loss é ACIMA do preço atual, take profit é ABAIXO
-                    new_stop_loss_price = current_price * (1 + stop_loss)
-                    new_take_profit_price = current_price * (1 - take_profit)
-                    
-                    print(f"[{symbol}] 📍 Preço atual: {current_price:.8f}")
-                    print(f"[{symbol}] 🛑 Novo Stop Loss: {new_stop_loss_price:.8f} ({stop_loss*100:.2f}%)")
-                    print(f"[{symbol}] 🎯 Novo Take Profit: {new_take_profit_price:.8f} ({-take_profit*100:.2f}%)")
+                    if should_update:
+                        # Marca trailing como ativo
+                        self._is_trailing_active[symbol] = True
+                        
+                        # Cancela ordens anteriores com timeout
+                        try:
+                            await asyncio.wait_for(
+                                self.binance_handler.client.cancel_all_orders(symbol),
+                                timeout=10.0
+                            )
+                        except asyncio.TimeoutError:
+                            print(f"[{symbol}] ⏱️ Timeout ao cancelar ordens no SHORT")
+                        except Exception as cancel_error:
+                            print(f"[{symbol}] ⚠️ Erro ao cancelar ordens no SHORT: {cancel_error}")
+                        
+                        print(f"[{symbol}] 📍 Preço atual: {mark_price:.8f}")
+                        print(f"[{symbol}] 📍 Menor preço atingido: {lowest_price:.8f}")
+                        print(f"[{symbol}] 🛑 Novo Stop Loss: {new_stop_loss_price:.8f} ({stop_loss*100:.2f}%)")
+                        print(f"[{symbol}] 🎯 Novo Take Profit: {new_take_profit_price:.8f} ({-take_profit*100:.2f}%)")
 
-                    try:
-                        # Cria ordem de Stop Loss (compra acima do preço atual) com timeout
-                        await asyncio.wait_for(
-                            self.binance_handler.client.create_order(
-                                symbol=symbol, 
-                                side='buy', 
-                                type='STOP_MARKET',
-                                amount=amount, 
-                                params={'stopPrice': new_stop_loss_price, 'reduceOnly': True}
-                            ),
-                            timeout=15.0
-                        )
+                        try:
+                            # Cria ordem de Stop Loss (compra acima do preço atual) com timeout
+                            await asyncio.wait_for(
+                                self.binance_handler.client.create_order(
+                                    symbol=symbol, 
+                                    side='buy', 
+                                    type='STOP_MARKET',
+                                    amount=amount, 
+                                    params={'stopPrice': new_stop_loss_price, 'reduceOnly': True}
+                                ),
+                                timeout=15.0
+                            )
+                            
+                            # Cria ordem de Take Profit (compra abaixo do preço atual) com timeout
+                            await asyncio.wait_for(
+                                self.binance_handler.client.create_order(
+                                    symbol=symbol, 
+                                    side='buy', 
+                                    type='TAKE_PROFIT_MARKET',
+                                    amount=amount, 
+                                    params={'stopPrice': new_take_profit_price, 'reduceOnly': True}
+                                ),
+                                timeout=15.0
+                            )
+                            
+                            # Salva estado de trailing
+                            self._current_trailing_stop_price[symbol] = new_stop_loss_price
+                            self._save_trailing_data()
+                            
+                            msg = f'✅ Stops atualizados para SHORT em {symbol}\n' \
+                                  f'🛑 SL: {new_stop_loss_price:.8f} (baseado no menor preço: {lowest_price:.8f})\n' \
+                                  f'🎯 TP: {new_take_profit_price:.8f}'
+                            print(msg)
+                            if context:
+                                try:
+                                    await self.enviar_mensagem(context, msg)
+                                except Exception as notify_error:
+                                    print(f"[{symbol}] Erro ao notificar atualização de stops SHORT: {notify_error}")
                         
-                        # Cria ordem de Take Profit (compra abaixo do preço atual) com timeout
-                        await asyncio.wait_for(
-                            self.binance_handler.client.create_order(
-                                symbol=symbol, 
-                                side='buy', 
-                                type='TAKE_PROFIT_MARKET',
-                                amount=amount, 
-                                params={'stopPrice': new_take_profit_price, 'reduceOnly': True}
-                            ),
-                            timeout=15.0
-                        )
-                        
-                        # Salva estado de trailing
-                        self._current_trailing_stop_price[symbol] = new_stop_loss_price
-                        self._save_trailing_data()
-                        
-                        msg = f'✅ Stops atualizados para SHORT em {symbol}\n' \
-                              f'🛑 SL: {new_stop_loss_price:.8f}\n' \
-                              f'🎯 TP: {new_take_profit_price:.8f}'
-                        print(msg)
-                        if context:
-                            try:
-                                await self.enviar_mensagem(context, msg)
-                            except Exception as notify_error:
-                                print(f"[{symbol}] Erro ao notificar atualização de stops SHORT: {notify_error}")
-                    
-                    except asyncio.TimeoutError:
-                        error_msg = f"⏱️ Timeout ao criar ordens de stop SHORT para {symbol}"
-                        print(error_msg)
-                        if context:
-                            try:
-                                await self.enviar_mensagem(context, error_msg)
-                            except:
-                                pass
-                                
-                    except Exception as order_error:
-                        error_msg = f"❌ Erro ao criar ordens SHORT para {symbol}: {str(order_error)[:150]}"
-                        print(error_msg)
-                        import traceback
-                        print(traceback.format_exc())
-                        if context:
-                            try:
-                                await self.enviar_mensagem(context, error_msg)
-                            except:
-                                pass
+                        except asyncio.TimeoutError:
+                            error_msg = f"⏱️ Timeout ao criar ordens de stop SHORT para {symbol}"
+                            print(error_msg)
+                            if context:
+                                try:
+                                    await self.enviar_mensagem(context, error_msg)
+                                except:
+                                    pass
+                                    
+                        except Exception as order_error:
+                            error_msg = f"❌ Erro ao criar ordens SHORT para {symbol}: {str(order_error)[:150]}"
+                            print(error_msg)
+                            import traceback
+                            print(traceback.format_exc())
+                            if context:
+                                try:
+                                    await self.enviar_mensagem(context, error_msg)
+                                except:
+                                    pass
                 else:
-                    print(f"[{symbol}] ⏸️ Aguardando progresso de 50% (atual: {progress_percent:.1f}%)")
+                    print(f"[{symbol}] ⏸️ Aguardando progresso de 25% para SHORT (atual: {progress_percent:.1f}%)")
             
             else:
                 print(f"[{symbol}] ⚠️ Side inválido ou posição não identificada: {side}")
