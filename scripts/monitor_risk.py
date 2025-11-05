@@ -141,6 +141,15 @@ async def monitor_risk_management(context: CallbackContext) -> None:
         binance = await BinanceHandler.create(testnet=True)
         gerenciador = GerenciamentoRiscoAsync(binance_handler=binance)
         
+        # 🔧 INICIALIZAÇÃO INTELIGENTE: Na primeira execução, reconstrói tracking
+        if not _positions_cache:
+            logger.info("🔄 Primeira execução detectada - inicializando tracking de posições...")
+            try:
+                await gerenciador.initialize_from_open_positions()
+            except Exception as init_error:
+                logger.error(f"⚠️ Erro na inicialização: {init_error}")
+                # Continua mesmo com erro - não bloqueia o monitor
+        
         # Busca TODAS as posições abertas na conta (muito mais eficiente)
         try:
             all_positions = await asyncio.wait_for(
@@ -220,6 +229,32 @@ async def monitor_risk_management(context: CallbackContext) -> None:
                     pnl_percentage = (unrealized_pnl / position_value) * 100
             
             logger.info(f"🔍 Verificando {symbol} | Side: {side} | PNL: {pnl_percentage:.2f}% (${unrealized_pnl:.2f})")
+            
+            # 🚨 VERIFICAÇÃO PRÉVIA: Stop loss violado durante downtime?
+            if symbol in gerenciador._current_trailing_stop_price:
+                saved_stop_loss = gerenciador._current_trailing_stop_price[symbol]
+                stop_violated = False
+                
+                if side == 'long' and mark_price <= saved_stop_loss:
+                    stop_violated = True
+                    violation_msg = (
+                        f"🚨 ALERTA PRÉ-MONITOR: Stop Loss violado!\n"
+                        f"{symbol} LONG | Preço: {mark_price:.8f} ≤ SL: {saved_stop_loss:.8f}\n"
+                        f"⚠️ Deixando stop_dinamico() tratar o fechamento..."
+                    )
+                elif side == 'short' and mark_price >= saved_stop_loss:
+                    stop_violated = True
+                    violation_msg = (
+                        f"🚨 ALERTA PRÉ-MONITOR: Stop Loss violado!\n"
+                        f"{symbol} SHORT | Preço: {mark_price:.8f} ≥ SL: {saved_stop_loss:.8f}\n"
+                        f"⚠️ Deixando stop_dinamico() tratar o fechamento..."
+                    )
+                
+                if stop_violated:
+                    logger.warning(violation_msg)
+                    await context.bot.send_message(chat_id=chat_id, text=violation_msg)
+                    # NÃO fecha aqui - deixa stop_dinamico() fazer isso
+                    # Isso evita execuções duplicadas e garante logs consistentes
             
             # Notifica mudanças de 0.5% ou mais no PNL
             await _notify_pnl_change(

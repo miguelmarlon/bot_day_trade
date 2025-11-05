@@ -41,7 +41,133 @@ class GerenciamentoRiscoAsync:
         # --- Fim das Alterações e Adições ---
 
         self.session = aiohttp.ClientSession()
-        self._load_trailing_data() 
+        self._load_trailing_data()
+
+    async def initialize_from_open_positions(self):
+        """
+        🔧 INICIALIZAÇÃO INTELIGENTE
+        
+        Reconstrói o tracking de trailing stops baseado em posições e ordens existentes.
+        Útil quando:
+        - Bot reinicia e trailing_data.json está vazio
+        - Há posições abertas com ordens de stop loss já configuradas
+        - Precisa recuperar o estado sem perder proteções
+        """
+        print("\n🔄 Inicializando tracking de posições abertas...")
+        
+        try:
+            # Busca todas as posições abertas
+            all_positions = await self.binance_handler.client.fetch_positions()
+            open_positions = [
+                pos for pos in all_positions
+                if pos.get('contracts', 0) > 0 and pos.get('side') in ('long', 'short')
+            ]
+            
+            if not open_positions:
+                print("ℹ️ Nenhuma posição aberta para inicializar")
+                return
+            
+            print(f"📊 {len(open_positions)} posição(ões) aberta(s) detectada(s)")
+            
+            for position in open_positions:
+                symbol = position['symbol']
+                side = position['side']
+                mark_price = float(position['info']['markPrice'])
+                entry_price = float(position['entryPrice'])
+                
+                print(f"\n🔍 Analisando {symbol} ({side.upper()})...")
+                
+                # Busca ordens abertas para este símbolo
+                try:
+                    orders = await self.binance_handler.client.fetch_orders(symbol)
+                    open_orders = [o for o in orders if o.get('status') == 'open']
+                    
+                    # Procura ordem de STOP_MARKET
+                    stop_loss_order = None
+                    for order in open_orders:
+                        if order.get('type') == 'STOP_MARKET' and order.get('stopPrice'):
+                            stop_loss_order = order
+                            break
+                    
+                    if stop_loss_order:
+                        stop_price = float(stop_loss_order['stopPrice'])
+                        print(f"   ✅ Ordem de SL encontrada: {stop_price:.8f}")
+                        
+                        # Reconstrói o highest/lowest price baseado no stop loss
+                        # Para LONG: highest_price = stop_loss / (1 - stop_loss_percent)
+                        # Para SHORT: lowest_price = stop_loss / (1 + stop_loss_percent)
+                        
+                        # Estima o percentual de stop loss pela distância
+                        if side == 'long':
+                            # Para LONG: SL está abaixo do preço atual
+                            stop_percent = (mark_price - stop_price) / mark_price
+                            
+                            # Calcula o maior preço que gerou este SL
+                            # Se SL = highest * (1 - stop_percent)
+                            # Então: highest = SL / (1 - stop_percent)
+                            if stop_percent > 0 and stop_percent < 1:
+                                highest_price = stop_price / (1 - stop_percent)
+                                
+                                # Usa o maior entre o calculado e o preço atual
+                                highest_price = max(highest_price, mark_price)
+                                
+                                self._highest_price_reached[symbol] = highest_price
+                                self._current_trailing_stop_price[symbol] = stop_price
+                                self._is_trailing_active[symbol] = True
+                                
+                                print(f"   📈 Reconstruído: highest_price={highest_price:.8f}")
+                                print(f"   🛑 Stop loss atual: {stop_price:.8f}")
+                            else:
+                                # Se não conseguir calcular, usa preço atual como baseline
+                                self._highest_price_reached[symbol] = mark_price
+                                self._current_trailing_stop_price[symbol] = stop_price
+                                print(f"   ⚠️ Usando mark_price como baseline: {mark_price:.8f}")
+                        
+                        elif side == 'short':
+                            # Para SHORT: SL está acima do preço atual
+                            stop_percent = (stop_price - mark_price) / mark_price
+                            
+                            # Calcula o menor preço que gerou este SL
+                            # Se SL = lowest * (1 + stop_percent)
+                            # Então: lowest = SL / (1 + stop_percent)
+                            if stop_percent > 0:
+                                lowest_price = stop_price / (1 + stop_percent)
+                                
+                                # Usa o menor entre o calculado e o preço atual
+                                lowest_price = min(lowest_price, mark_price)
+                                
+                                self._highest_price_reached[symbol] = lowest_price  # Para SHORT, armazena o MENOR preço
+                                self._current_trailing_stop_price[symbol] = stop_price
+                                self._is_trailing_active[symbol] = True
+                                
+                                print(f"   📉 Reconstruído: lowest_price={lowest_price:.8f}")
+                                print(f"   🛑 Stop loss atual: {stop_price:.8f}")
+                            else:
+                                # Se não conseguir calcular, usa preço atual como baseline
+                                self._highest_price_reached[symbol] = mark_price
+                                self._current_trailing_stop_price[symbol] = stop_price
+                                print(f"   ⚠️ Usando mark_price como baseline: {mark_price:.8f}")
+                    
+                    else:
+                        # Sem ordem de SL - inicializa com preço atual
+                        print(f"   ℹ️ Nenhuma ordem de SL encontrada - inicializando com mark_price")
+                        self._highest_price_reached[symbol] = mark_price
+                        print(f"   📍 Baseline: {mark_price:.8f}")
+                
+                except Exception as order_error:
+                    print(f"   ⚠️ Erro ao buscar ordens: {order_error}")
+                    # Fallback: inicializa com preço atual
+                    self._highest_price_reached[symbol] = mark_price
+                    print(f"   📍 Fallback baseline: {mark_price:.8f}")
+            
+            # Salva todos os dados reconstruídos
+            self._save_trailing_data()
+            print(f"\n✅ Inicialização concluída! Dados salvos em {TRAILING_DATA_FILE}")
+        
+        except Exception as e:
+            print(f"\n❌ Erro na inicialização: {e}")
+            import traceback
+            print(traceback.format_exc())
 
     def _load_trailing_data(self):
             """Carrega os dados do trailing stop do arquivo JSON."""
@@ -49,35 +175,96 @@ class GerenciamentoRiscoAsync:
                 try:
                     with open(TRAILING_DATA_FILE, 'r') as f:
                         data = json.load(f)
+                        
+                        if not data:
+                            print(f"⚠️ {TRAILING_DATA_FILE} está vazio. Nenhum dado para carregar.")
+                            return
+                        
+                        print(f"📂 Carregando trailing_data.json com {len(data)} símbolo(s)...")
+                        
                         for symbol, values in data.items():
-                            self._highest_profit_reached[symbol] = values.get("highest_profit_percentage", -float('inf'))
+                            # Carrega highest_profit_percentage, convertendo None de volta para -inf se necessário
+                            profit_percent = values.get("highest_profit_percentage")
+                            if profit_percent is None:
+                                profit_percent = -float('inf')
+                            self._highest_profit_reached[symbol] = profit_percent
+                            
                             self._is_trailing_active[symbol] = values.get("is_trailing_active", False)
+                            
+                            # CRÍTICO: Carrega também o menor/maior preço atingido
+                            if "highest_price_reached" in values and values["highest_price_reached"] is not None:
+                                self._highest_price_reached[symbol] = values["highest_price_reached"]
+                                print(f"[{symbol}] ✅ Carregado highest_price_reached: {values['highest_price_reached']:.8f}")
+                            
+                            # CRÍTICO: Carrega também o stop loss atual
+                            if "current_trailing_stop_price" in values and values["current_trailing_stop_price"] is not None:
+                                self._current_trailing_stop_price[symbol] = values["current_trailing_stop_price"]
+                                print(f"[{symbol}] ✅ Carregado current_trailing_stop_price: {values['current_trailing_stop_price']:.8f}")
+                        
+                        print(f"✅ Trailing data carregado com sucesso!")
+                        
                 except json.JSONDecodeError as e:
-                    print(f"Erro ao carregar {TRAILING_DATA_FILE}: {e}. O arquivo pode estar corrompido.")
-                    # Opcional: fazer um backup do arquivo corrompido e criar um novo vazio
+                    print(f"❌ Erro ao carregar {TRAILING_DATA_FILE}: {e}. O arquivo pode estar corrompido.")
+                except Exception as e:
+                    print(f"❌ Erro inesperado ao carregar trailing data: {e}")
             else:
-                print(f"Arquivo {TRAILING_DATA_FILE} não encontrado. Será criado se necessário.")
+                print(f"📁 Arquivo {TRAILING_DATA_FILE} não encontrado. Será criado quando necessário.")
                 self._highest_profit_reached = {}
                 self._is_trailing_active = {}
 
     def _save_trailing_data(self):
         """Salva os dados atuais do trailing stop no arquivo JSON."""
-        # Filtra apenas os símbolos que realmente têm dados de trailing ativos ou picos registrados
         data_to_save = {}
-        for symbol in set(self._highest_profit_reached.keys()) | set(self._is_trailing_active.keys()):
-            if symbol in self._highest_profit_reached and not math.isinf(self._highest_profit_reached[symbol]):
-                 data_to_save[symbol] = {
-                    "highest_profit_percentage": self._highest_profit_reached.get(symbol, -float('inf')),
-                    "is_trailing_active": self._is_trailing_active.get(symbol, False)
+        
+        # Considera todos os dicionários relevantes
+        all_symbols = set(self._highest_profit_reached.keys()) | set(self._is_trailing_active.keys()) | \
+                      set(self._highest_price_reached.keys()) | set(self._current_trailing_stop_price.keys())
+        
+        for symbol in all_symbols:
+            # CORREÇÃO: Salva se tiver QUALQUER dado relevante, não só highest_profit_reached
+            # Basta ter trailing ativo OU preço extremo OU stop loss atual
+            should_save = False
+            
+            # Verifica se há dados válidos para salvar
+            if symbol in self._is_trailing_active and self._is_trailing_active[symbol]:
+                should_save = True
+            
+            if symbol in self._highest_price_reached and self._highest_price_reached[symbol] is not None:
+                should_save = True
+            
+            if symbol in self._current_trailing_stop_price and self._current_trailing_stop_price[symbol] is not None:
+                should_save = True
+            
+            if should_save:
+                # Obtém highest_profit_percentage, mas converte -inf para None
+                profit_percent = self._highest_profit_reached.get(symbol, -float('inf'))
+                if math.isinf(profit_percent) and profit_percent < 0:
+                    profit_percent = None  # Converte -Infinity para None (válido em JSON)
+                
+                data_to_save[symbol] = {
+                    "highest_profit_percentage": profit_percent,
+                    "is_trailing_active": self._is_trailing_active.get(symbol, False),
+                    "highest_price_reached": self._highest_price_reached.get(symbol),
+                    "current_trailing_stop_price": self._current_trailing_stop_price.get(symbol)
                 }
+                
+                # DEBUG: Log o que está sendo salvo (formatação corrigida)
+                sl_value = data_to_save[symbol]['current_trailing_stop_price']
+                highest_value = data_to_save[symbol]['highest_price_reached']
+                
+                sl_str = f"{sl_value:.8f}" if sl_value is not None else "None"
+                highest_str = f"{highest_value:.8f}" if highest_value is not None else "None"
+                
+                print(f"[{symbol}] 💾 Salvando trailing_data: SL={sl_str}, highest={highest_str}")
 
         # Garante que o diretório exista
         os.makedirs(CONFIG_DIR, exist_ok=True)
         try:
             with open(TRAILING_DATA_FILE, 'w') as f:
                 json.dump(data_to_save, f, indent=2)
+            print(f"✅ trailing_data.json atualizado com {len(data_to_save)} símbolo(s)")
         except Exception as e:
-            print(f"Erro ao salvar {TRAILING_DATA_FILE}: {e}")
+            print(f"❌ Erro ao salvar {TRAILING_DATA_FILE}: {e}")
 
     async def close(self):
         """Fecha todos os recursos de forma segura."""
@@ -683,10 +870,9 @@ class GerenciamentoRiscoAsync:
             position = positions[0] if positions else None
             if not position:
                 print(f"[{symbol}] Nenhuma posição encontrada ou dados inválidos para gerenciar.")
-                if symbol in self._highest_price_reached: del self._highest_price_reached[symbol]
-                if symbol in self._current_trailing_stop_price: del self._current_trailing_stop_price[symbol]
-                if symbol in self._is_trailing_active: del self._is_trailing_active[symbol]
-                self._save_trailing_data()
+                # IMPORTANTE: NÃO limpa dados de trailing imediatamente
+                # Mantém os dados por alguns ciclos para evitar perda de histórico durante atualizações de ordens
+                print(f"[{symbol}] ⚠️ Mantendo dados de trailing (posição pode estar sendo atualizada)")
                 return
         
             side = position['side']
@@ -694,20 +880,95 @@ class GerenciamentoRiscoAsync:
             entry_price = float(position['entryPrice'])
             mark_price = float(position['info']['markPrice'])
             
+            # 🚨 VERIFICAÇÃO DE EMERGÊNCIA: Stop loss já violado durante reinício/downtime?
+            if symbol in self._current_trailing_stop_price:
+                saved_stop_loss = self._current_trailing_stop_price[symbol]
+                
+                if side == 'long':
+                    # Para LONG: se preço caiu abaixo do stop loss
+                    if mark_price <= saved_stop_loss:
+                        emergency_msg = (
+                            f"🚨 EMERGÊNCIA: Stop Loss violado em {symbol}!\n"
+                            f"💰 LONG | Preço atual: {mark_price:.8f}\n"
+                            f"🛑 Stop Loss: {saved_stop_loss:.8f}\n"
+                            f"⚠️ Fechando posição imediatamente..."
+                        )
+                        print(emergency_msg)
+                        if context:
+                            try:
+                                await self.enviar_mensagem(context, emergency_msg)
+                            except:
+                                pass
+                        
+                        # Fecha posição imediatamente
+                        try:
+                            await self.fecha_pnl(
+                                symbol=symbol,
+                                quantidade=amount,
+                                operacao='long',
+                                context=context,
+                                motivo="Stop Loss violado durante downtime"
+                            )
+                            return
+                        except Exception as close_error:
+                            error_msg = f"❌ Erro ao fechar posição de emergência: {close_error}"
+                            print(error_msg)
+                            if context:
+                                try:
+                                    await self.enviar_mensagem(context, error_msg)
+                                except:
+                                    pass
+                            return
+                
+                elif side == 'short':
+                    # Para SHORT: se preço subiu acima do stop loss
+                    if mark_price >= saved_stop_loss:
+                        emergency_msg = (
+                            f"🚨 EMERGÊNCIA: Stop Loss violado em {symbol}!\n"
+                            f"💰 SHORT | Preço atual: {mark_price:.8f}\n"
+                            f"🛑 Stop Loss: {saved_stop_loss:.8f}\n"
+                            f"⚠️ Fechando posição imediatamente..."
+                        )
+                        print(emergency_msg)
+                        if context:
+                            try:
+                                await self.enviar_mensagem(context, emergency_msg)
+                            except:
+                                pass
+                        
+                        # Fecha posição imediatamente
+                        try:
+                            await self.fecha_pnl(
+                                symbol=symbol,
+                                quantidade=amount,
+                                operacao='short',
+                                context=context,
+                                motivo="Stop Loss violado durante downtime"
+                            )
+                            return
+                        except Exception as close_error:
+                            error_msg = f"❌ Erro ao fechar posição de emergência: {close_error}"
+                            print(error_msg)
+                            if context:
+                                try:
+                                    await self.enviar_mensagem(context, error_msg)
+                                except:
+                                    pass
+                            return
+            
             # Validação crítica: verifica se a posição está realmente aberta
             is_position_open = side in ('long', 'short') and amount > 0
             
             if not is_position_open or amount == 0:
                 print(f"[{symbol}] Posição não está aberta ou quantidade é zero (side: {side}, amount: {amount})")
                
-                # Limpa dados de trailing
-                if symbol in self._highest_price_reached:
-                    del self._highest_price_reached[symbol]
-                if symbol in self._current_trailing_stop_price:
-                    del self._current_trailing_stop_price[symbol]
-                if symbol in self._is_trailing_active:
-                    del self._is_trailing_active[symbol]
-                self._save_trailing_data()
+                # IMPORTANTE: NÃO limpa dados de trailing imediatamente
+                # Mantém os dados por alguns ciclos para evitar perda de histórico durante atualizações de ordens
+                # Os dados serão limpos apenas quando confirmado que a posição foi realmente fechada
+                print(f"[{symbol}] ⚠️ Mantendo dados de trailing (posição pode estar sendo atualizada)")
+                
+                # Apenas limpa se realmente não houver posição após verificação adicional
+                # Esta limpeza será feita em fecha_pnl quando a posição for realmente fechada
                 return
 
             # Busca ordens existentes com timeout
@@ -785,15 +1046,26 @@ class GerenciamentoRiscoAsync:
                 progress_percent = ((total_distance - distance_to_tp) / total_distance) * 100
                 
                 # Inicializa o maior preço atingido (para trailing stop em LONG)
+                # CRÍTICO: Se já existir, usa o MAIOR entre o valor atual e o mark_price
                 if symbol not in self._highest_price_reached:
                     self._highest_price_reached[symbol] = mark_price
-                
-                # Atualiza o maior preço atingido (para LONG, quanto maior, melhor)
-                if mark_price > self._highest_price_reached[symbol]:
-                    self._highest_price_reached[symbol] = mark_price
-                    print(f"[{symbol}] 📈 Novo maior preço atingido: {mark_price:.8f}")
+                    print(f"[{symbol}] 🆕 Inicializando rastreamento de maior preço: {mark_price:.8f}")
+                    self._save_trailing_data()  # Salva imediatamente
+                else:
+                    old_highest = self._highest_price_reached[symbol]
+                    # Se já existe, garante que nunca diminui (só aumenta)
+                    if mark_price > self._highest_price_reached[symbol]:
+                        self._highest_price_reached[symbol] = mark_price
+                        print(f"[{symbol}] 📈 Novo maior preço atingido: {old_highest:.8f} → {mark_price:.8f}")
+                        self._save_trailing_data()  # Salva imediatamente
+                    else:
+                        # Preço caiu - mantém o maior preço registrado
+                        print(f"[{symbol}] ℹ️ Preço atual {mark_price:.8f} < maior preço {self._highest_price_reached[symbol]:.8f} (mantendo maior)")
                 
                 highest_price = self._highest_price_reached[symbol]
+                
+                # DEBUG: Mostra valor atual armazenado
+                print(f"[{symbol}] 🔍 DEBUG: highest_price usado para cálculo: {highest_price:.8f}")
                 
                 # msg = f'📊 {symbol} LONG: {price_var:.2f}% | Progresso até TP: {progress_percent:.1f}% | Maior preço: {highest_price:.8f}'
                 # print(msg)
@@ -815,6 +1087,23 @@ class GerenciamentoRiscoAsync:
                     # Isso garante que o SL só sobe (protege lucros) e nunca desce (aumenta risco)
                     new_stop_loss_price = highest_price * (1 - stop_loss)
                     new_take_profit_price = highest_price * (1 + take_profit)
+                    
+                    # VALIDAÇÃO ADICIONAL: Verifica se highest_price não diminuiu (bug detection)
+                    if current_stop_loss_in_order is not None:
+                        # Calcula qual seria o highest_price anterior baseado no SL anterior
+                        previous_highest_price = current_stop_loss_in_order / (1 - stop_loss)
+                        
+                        if highest_price < previous_highest_price:
+                            # ALERTA: highest_price DIMINUIU! Isso é um bug!
+                            print(f"[{symbol}] 🚨 BUG DETECTADO: Maior preço diminuiu de {previous_highest_price:.8f} para {highest_price:.8f}!")
+                            print(f"[{symbol}] 🔧 CORREÇÃO: Usando o maior preço anterior para manter proteção")
+                            highest_price = previous_highest_price
+                            self._highest_price_reached[symbol] = highest_price  # Corrige o valor armazenado
+                            self._save_trailing_data()  # Salva a correção imediatamente
+                            
+                            # Recalcula stops com o valor correto
+                            new_stop_loss_price = highest_price * (1 - stop_loss)
+                            new_take_profit_price = highest_price * (1 + take_profit)
                     
                     # CRÍTICO: Só ajusta o stop loss se ele for MAIOR que o anterior
                     # Para LONG: queremos que o SL SUBA conforme o preço sobe
@@ -930,15 +1219,26 @@ class GerenciamentoRiscoAsync:
                 progress_percent = ((total_distance - distance_to_tp) / total_distance) * 100
                 
                 # Inicializa o menor preço atingido (para trailing stop em SHORT)
+                # CRÍTICO: Se já existir, usa o MENOR entre o valor atual e o mark_price
                 if symbol not in self._highest_price_reached:
                     self._highest_price_reached[symbol] = mark_price
-                
-                # Atualiza o menor preço atingido (para SHORT, quanto menor, melhor)
-                if mark_price < self._highest_price_reached[symbol]:
-                    self._highest_price_reached[symbol] = mark_price
-                    print(f"[{symbol}] 📉 Novo menor preço atingido: {mark_price:.8f}")
+                    print(f"[{symbol}] 🆕 Inicializando rastreamento de menor preço: {mark_price:.8f}")
+                    self._save_trailing_data()  # Salva imediatamente
+                else:
+                    old_lowest = self._highest_price_reached[symbol]
+                    # Se já existe, garante que nunca aumenta (só diminui)
+                    if mark_price < self._highest_price_reached[symbol]:
+                        self._highest_price_reached[symbol] = mark_price
+                        print(f"[{symbol}] 📉 Novo menor preço atingido: {old_lowest:.8f} → {mark_price:.8f}")
+                        self._save_trailing_data()  # Salva imediatamente
+                    else:
+                        # Preço subiu - mantém o menor preço registrado
+                        print(f"[{symbol}] ℹ️ Preço atual {mark_price:.8f} > menor preço {self._highest_price_reached[symbol]:.8f} (mantendo menor)")
                 
                 lowest_price = self._highest_price_reached[symbol]
+                
+                # DEBUG: Mostra valor atual armazenado
+                print(f"[{symbol}] 🔍 DEBUG: lowest_price usado para cálculo: {lowest_price:.8f}")
                 
                 # msg = f'📊 {symbol} SHORT: {price_var:.2f}% | Progresso até TP: {progress_percent:.1f}% | Menor preço: {lowest_price:.8f}'
                 # print(msg)
@@ -959,6 +1259,23 @@ class GerenciamentoRiscoAsync:
                     # Isso garante que o SL só desce (protege lucros) e nunca sobe (aumenta risco)
                     new_stop_loss_price = lowest_price * (1 + stop_loss)
                     new_take_profit_price = lowest_price * (1 - take_profit)
+                    
+                    # VALIDAÇÃO ADICIONAL: Verifica se lowest_price não aumentou (bug detection)
+                    if current_stop_loss_in_order is not None:
+                        # Calcula qual seria o lowest_price anterior baseado no SL anterior
+                        previous_lowest_price = current_stop_loss_in_order / (1 + stop_loss)
+                        
+                        if lowest_price > previous_lowest_price:
+                            # ALERTA: lowest_price AUMENTOU! Isso é um bug!
+                            print(f"[{symbol}] 🚨 BUG DETECTADO: Menor preço aumentou de {previous_lowest_price:.8f} para {lowest_price:.8f}!")
+                            print(f"[{symbol}] 🔧 CORREÇÃO: Usando o menor preço anterior para manter proteção")
+                            lowest_price = previous_lowest_price
+                            self._highest_price_reached[symbol] = lowest_price  # Corrige o valor armazenado
+                            self._save_trailing_data()  # Salva a correção imediatamente
+                            
+                            # Recalcula stops com o valor correto
+                            new_stop_loss_price = lowest_price * (1 + stop_loss)
+                            new_take_profit_price = lowest_price * (1 - take_profit)
                     
                     # CRÍTICO: Só ajusta o stop loss se ele for MENOR que o anterior
                     # Para SHORT: queremos que o SL DESÇA conforme o preço desce

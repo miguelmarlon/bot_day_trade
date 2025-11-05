@@ -2,7 +2,6 @@ import sys
 from pathlib import Path
 import time
 
-
 sys.path.append(str(Path(__file__).parent.parent))
 
 import ta  # Technical Analysis Library
@@ -223,12 +222,7 @@ async def strategy_MA_SlowStochastic_Combo(binance, context, **kwargs):
             
             if not await gerenciador_risco.posicao_max(symbol, posicao_max) and not tem_ordem_aberta:
                 try:
-                    # # usa o modelo XGBRegressor para previsão de preço
-                    # df = calcular_indicadores(df)
-                    # model, scaler = treina_modelo(df)
-                    # preco_futuro = predict(df, model=model, scaler=scaler)
-
-                    # Calcula Média Móvel (Filtro de Tendência)
+                    
                     if ma_type == "sma":
                         sma = ta.trend.SMAIndicator(data['close'], n_ma)
                         data["MA_Filter"] = sma.sma_indicator()
@@ -251,9 +245,6 @@ async def strategy_MA_SlowStochastic_Combo(binance, context, **kwargs):
                     if data_clean.empty:
                         print(f"⚠️ Dados NaN após cálculo dos indicadores em {symbol}")
                         continue
-                    #  long ou short baseado no modelo XGBRegressor
-                    # xgb_long = preco_futuro >= data_clean['close'].iloc[-1]
-                    # xgb_short = preco_futuro <= data_clean['close'].iloc[-1]
 
                     last_close = data_clean['close'].iloc[-1]
                     last_ma = data_clean['MA_Filter'].iloc[-1]
