@@ -27,6 +27,16 @@ _positions_cache: Set[str] = set()
 # Formato: {symbol: last_notified_percentage}
 _last_notified_pnl: Dict[str, float] = {}
 
+# Import do Excel Exporter - lazy import
+def _get_excel_exporter():
+    """Lazy import do Excel Exporter."""
+    try:
+        from scripts.excel_exporter import export_risk_monitor_data
+        return export_risk_monitor_data
+    except ImportError as e:
+        logger.warning(f"⚠️ Excel Exporter não disponível: {e}")
+        return None
+
 
 async def _notify_pnl_change(
     symbol: str,
@@ -229,6 +239,30 @@ async def monitor_risk_management(context: CallbackContext) -> None:
                     pnl_percentage = (unrealized_pnl / position_value) * 100
             
             logger.info(f"🔍 Verificando {symbol} | Side: {side} | PNL: {pnl_percentage:.2f}% (${unrealized_pnl:.2f})")
+            
+            # Exporta dados de monitoramento para Excel (a cada 5 minutos ou quando relevante)
+            # Para evitar excesso de dados, exporta apenas quando há mudanças significativas
+            if pnl_percentage != 0:  # Posição com algum movimento
+                try:
+                    export_risk_data = _get_excel_exporter()
+                    if export_risk_data is not None:
+                        monitoring_data = {
+                            'symbol': symbol,
+                            'side': side,
+                            'entry_price': entry_price,
+                            'current_price': mark_price,
+                            'pnl_percentage': pnl_percentage / 100,  # Converte para decimal
+                            'unrealized_pnl': unrealized_pnl,
+                            'current_stop_loss': gerenciador._current_trailing_stop_price.get(symbol, 0),
+                            'take_profit': 0.04,  # TODO: Buscar do config
+                            'highest_price': gerenciador._highest_price_reached.get(symbol, 0),
+                            'is_trailing_active': gerenciador._is_trailing_active.get(symbol, False),
+                            'duration_minutes': 0,  # TODO: Calcular duração
+                            'status': 'MONITORANDO'
+                        }
+                        export_risk_data(monitoring_data)
+                except Exception as export_error:
+                    logger.debug(f"Erro ao exportar dados de monitoramento: {export_error}")
             
             # 🚨 VERIFICAÇÃO PRÉVIA: Stop loss violado durante downtime?
             if symbol in gerenciador._current_trailing_stop_price:

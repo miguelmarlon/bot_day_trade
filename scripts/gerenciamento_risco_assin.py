@@ -13,9 +13,20 @@ from utils.binance_client import BinanceHandler
 from typing import List, Tuple, Optional
 import json
 import math
+from datetime import datetime
 
 CONFIG_DIR = 'config'
 TRAILING_DATA_FILE = os.path.join(CONFIG_DIR, 'trailing_data.json')
+
+# Import do Excel Exporter - lazy import para evitar dependências circulares
+def _get_excel_exporter():
+    """Lazy import do Excel Exporter."""
+    try:
+        from scripts.excel_exporter import export_closed_trade, export_risk_monitor_data
+        return export_closed_trade, export_risk_monitor_data
+    except ImportError as e:
+        print(f"⚠️ Excel Exporter não disponível: {e}")
+        return None, None
 
 class GerenciamentoRiscoAsync:
 
@@ -265,6 +276,65 @@ class GerenciamentoRiscoAsync:
             print(f"✅ trailing_data.json atualizado com {len(data_to_save)} símbolo(s)")
         except Exception as e:
             print(f"❌ Erro ao salvar {TRAILING_DATA_FILE}: {e}")
+
+    def _export_trade_to_excel(self, symbol: str, entry_price: float, exit_price: float, 
+                               pnl: float, percentage: float, reason: str, 
+                               entry_time: Optional[str] = None) -> None:
+        """
+        Exporta dados da operação fechada para Excel.
+        
+        Args:
+            symbol: Símbolo do ativo
+            entry_price: Preço de entrada
+            exit_price: Preço de saída
+            pnl: PNL realizado em USD
+            percentage: Percentual de retorno
+            reason: Motivo do fechamento
+            entry_time: Timestamp de entrada (opcional)
+        """
+        try:
+            export_closed_trade, _ = _get_excel_exporter()
+            
+            if export_closed_trade is None:
+                print(f"[{symbol}] ⚠️ Exportação para Excel não disponível")
+                return
+            
+            # Prepara dados do trade
+            trade_data = {
+                'trade_id': f"{symbol}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                'cripto': symbol,
+                'timestamp_entrada': entry_time or 'N/A',
+                'preco_entrada': entry_price,
+                'preco_saida': exit_price,
+                'valor_investido': 100,  # Valor padrão, pode ser ajustado
+                'lucro_liquido': pnl,
+                'retorno_percentual': percentage,
+                'duracao': 'N/A',  # Será calculado se entry_time disponível
+                'saida_por': reason,
+                'status': 'CONCLUIDO',
+                'preco_stop_loss_inicial': self._current_trailing_stop_price.get(symbol, 0),
+                'trailing_topo_atual': self._highest_price_reached.get(symbol, 0),
+                'timestamp_saida': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            # Calcula duração se possível
+            if entry_time and entry_time != 'N/A':
+                try:
+                    entry_dt = datetime.fromisoformat(entry_time.replace('T', ' '))
+                    exit_dt = datetime.now()
+                    duration = exit_dt - entry_dt
+                    trade_data['duracao'] = str(duration)
+                except:
+                    pass
+            
+            # Exporta para Excel
+            if export_closed_trade(trade_data):
+                print(f"[{symbol}] ✅ Operação exportada para Excel")
+            else:
+                print(f"[{symbol}] ⚠️ Falha ao exportar para Excel")
+                
+        except Exception as e:
+            print(f"[{symbol}] ❌ Erro ao exportar trade: {e}")
 
     async def close(self):
         """Fecha todos os recursos de forma segura."""
@@ -718,6 +788,10 @@ class GerenciamentoRiscoAsync:
                 reason = 'Trailing Stop' if self._is_trailing_active[symbol] and current_loss_threshold > loss else 'STOP LOSS'
                 print(f"[{symbol}] 🚨 Encerrando por {reason}. PNL: {percentage:.4%} ({pnl_formatted} USD)")
                 
+                # Obtém preço atual antes de encerrar
+                _, _, _, _, _, _, _ = await self.posicoes_abertas(symbol)
+                current_price = entry_price_float * (1 + percentage)  # Calcula preço aproximado
+                
                 await self.encerra_posicao(symbol, context, try_limit_first=try_limit_first)
                 
                 msg = (f"❌ Saída por {reason}\n"
@@ -726,6 +800,17 @@ class GerenciamentoRiscoAsync:
                        f"Símbolo: {symbol}")
                 if context:
                     await self.enviar_mensagem(context, msg)
+                
+                # Exporta para Excel
+                self._export_trade_to_excel(
+                    symbol=symbol,
+                    entry_price=entry_price_float,
+                    exit_price=current_price,
+                    pnl=pnl_float,
+                    percentage=percentage,
+                    reason=reason,
+                    entry_time=None  # TODO: Armazenar timestamp de entrada
+                )
                 
                 # Limpa dados do trailing
                 if symbol in self._highest_profit_reached:
@@ -740,6 +825,9 @@ class GerenciamentoRiscoAsync:
             elif percentage >= target:
                 print(f"[{symbol}] ✅ Encerrando por TAKE PROFIT. PNL: {percentage:.4%} ({pnl_formatted} USD)")
                 
+                # Obtém preço atual antes de encerrar
+                current_price = entry_price_float * (1 + percentage)  # Calcula preço aproximado
+                
                 await self.encerra_posicao(symbol, context, try_limit_first=try_limit_first)
                 
                 msg = (f"✅ TAKE PROFIT atingido!\n"
@@ -748,6 +836,17 @@ class GerenciamentoRiscoAsync:
                        f"Símbolo: {symbol}")
                 if context:
                     await self.enviar_mensagem(context, msg)
+                
+                # Exporta para Excel
+                self._export_trade_to_excel(
+                    symbol=symbol,
+                    entry_price=entry_price_float,
+                    exit_price=current_price,
+                    pnl=pnl_float,
+                    percentage=percentage,
+                    reason='Take Profit',
+                    entry_time=None  # TODO: Armazenar timestamp de entrada
+                )
                 
                 # Limpa dados do trailing
                 if symbol in self._highest_profit_reached:
