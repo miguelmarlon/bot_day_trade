@@ -8,8 +8,8 @@ import ta  # Technical Analysis Library
 import pandas as pd
 from utils.binance_client import BinanceHandler
 from scripts.gerenciamento_risco_assin import GerenciamentoRiscoAsync
-from scripts.prediction_model import treina_modelo, predict
-from scripts.technical_analysis import calcular_indicadores
+from strategies.model_xgb import treina_modelo, predict
+from strategies.macd_rsi import calcular_indicadores
 import asyncio
 
 async def strategy_MA_SlowStochastic_Combo(binance, context, **kwargs):

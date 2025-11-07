@@ -191,7 +191,7 @@ class GerenciamentoRiscoAsync:
                             print(f"⚠️ {TRAILING_DATA_FILE} está vazio. Nenhum dado para carregar.")
                             return
                         
-                        print(f"📂 Carregando trailing_data.json com {len(data)} símbolo(s)...")
+                        # print(f"📂 Carregando trailing_data.json com {len(data)} símbolo(s)...")
                         
                         for symbol, values in data.items():
                             # Carrega highest_profit_percentage, convertendo None de volta para -inf se necessário
@@ -205,12 +205,12 @@ class GerenciamentoRiscoAsync:
                             # CRÍTICO: Carrega também o menor/maior preço atingido
                             if "highest_price_reached" in values and values["highest_price_reached"] is not None:
                                 self._highest_price_reached[symbol] = values["highest_price_reached"]
-                                print(f"[{symbol}] ✅ Carregado highest_price_reached: {values['highest_price_reached']:.8f}")
+                                # print(f"[{symbol}] ✅ Carregado highest_price_reached: {values['highest_price_reached']:.8f}")
                             
                             # CRÍTICO: Carrega também o stop loss atual
                             if "current_trailing_stop_price" in values and values["current_trailing_stop_price"] is not None:
                                 self._current_trailing_stop_price[symbol] = values["current_trailing_stop_price"]
-                                print(f"[{symbol}] ✅ Carregado current_trailing_stop_price: {values['current_trailing_stop_price']:.8f}")
+                                # print(f"[{symbol}] ✅ Carregado current_trailing_stop_price: {values['current_trailing_stop_price']:.8f}")
                         
                         print(f"✅ Trailing data carregado com sucesso!")
                         

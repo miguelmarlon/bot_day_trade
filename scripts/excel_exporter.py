@@ -265,8 +265,8 @@ class ExcelExporter:
             
             df = pd.read_excel(history_file)
             
-            # Converte datas
-            df['Data Entrada'] = pd.to_datetime(df['Data Entrada'])
+            # Converte datas com formato flexível
+            df['Data Entrada'] = pd.to_datetime(df['Data Entrada'], format='mixed', errors='coerce')
             df['Data'] = df['Data Entrada'].dt.date
             
             # Agrupa por data

@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 import pandas as pd
 from scripts.sentiment_analyzer import analisar_sentimento_openrouter, gerar_resumo
 from scripts.information_tools import get_economic_events_async, buscar_noticias_google
-from scripts.technical_analysis import calcular_indicadores, verificar_long, verificar_short
+from strategies.macd_rsi import calcular_indicadores, verificar_long, verificar_short
 from strategies.btc_1m import verificar_long_btc_1m, verificar_short_btc_1m
 import numpy as np
 from scripts.gerenciamento_risco_assin import GerenciamentoRiscoAsync
@@ -14,7 +14,7 @@ from strategies.estrategia_rompimento import trading_task_rompimento
 from strategies.ma_slowStochastic_combo import trading_task_ma_slow_stochastic
 from utils.binance_client import BinanceHandler
 from config.config import TELEGRAM_TOKEN_BOT_TRADE
-from scripts.prediction_model import treina_modelo, predict
+from strategies.model_xgb import treina_modelo, predict
 from scripts.cryptos_select import selecionar_cryptos_sem_notas, calcular_tamanho_operacoes_sem_notas
 from scripts.monitor_risk import monitor_risk_management
 import logging
@@ -163,7 +163,7 @@ async def iniciar_rompimento(update: Update, context: CallbackContext):
     except Exception as e:
         await update.message.reply_text(f"❌ Erro ao iniciar estratégia de rompimento: {e}")
 
-async def iniciar_bot(update: Update, context: CallbackContext):
+async def iniciar_mr_xgb(update: Update, context: CallbackContext):
     """Handler do comando /operar com suporte a timeframe"""
     try:
         # Lê o argumento (ex: /operar 2h)
@@ -186,7 +186,7 @@ async def iniciar_bot(update: Update, context: CallbackContext):
 
         # Inicia o novo job
         context.job_queue.run_repeating(
-            trading_task,
+            macd_rsi_xgb,
             interval=20.0,
             first=5,
             chat_id=update.effective_chat.id,
@@ -261,7 +261,7 @@ async def selecionar_moedas_handler(update: Update, context: CallbackContext):
         await update.message.reply_text(f"❌ Ocorreu um erro ao processar sua solicitação: {e}")
         
 # FUNÇÕES DE ESTRATÉGIAS DIRETAS - NÃO IMPORT !
-async def trading_task(context):
+async def macd_rsi_xgb(context):
     binance = None
     gerenciador_risco = None
     try:
@@ -269,31 +269,47 @@ async def trading_task(context):
         chat_id = context.job.chat_id
         await context.bot.send_message(chat_id=chat_id, text="⏳ Executando análise de mercado...")
 
-        binance = await BinanceHandler.create()
+        binance = await BinanceHandler.create(testnet=True)
         gerenciador_risco = GerenciamentoRiscoAsync(binance_handler=binance)
         
         async with gerenciador_risco as gr:
-            df_config = pd.read_csv('config/cripto_tamanho_xgb.csv')
-            df_config.dropna(inplace=True)
+            # Validação do arquivo de configuração
+            try:
+                df_config = pd.read_csv('config/cripto_tamanho_xgb.csv')
+                df_config.dropna(inplace=True)
+                
+                if df_config.empty:
+                    await context.bot.send_message(
+                        chat_id=chat_id, 
+                        text="❌ Arquivo de configuração está vazio!"
+                    )
+                    return
+            except FileNotFoundError:
+                await context.bot.send_message(
+                    chat_id=chat_id, 
+                    text="❌ Arquivo config/cripto_tamanho_xgb.csv não encontrado!"
+                )
+                return
+            except Exception as e:
+                await context.bot.send_message(
+                    chat_id=chat_id, 
+                    text=f"❌ Erro ao ler configuração: {e}"
+                )
+                return
 
             timeframe = context.chat_data.get('timeframe_operacao', '1h')
 
             for _, row in df_config.iterrows():
                 symbol = row['symbol']
                 posicao_max = row['tamanho']
-                # tipo_operacao = row['acao']
-
-                # await gr.fecha_pnl(
-                #         symbol=symbol, 
-                #         loss=-0.25,
-                #         target= 2.0, 
-                #         context=context 
-                #     )
+                await context.bot.send_message(chat_id=chat_id, text=f"🔎 Analisando {symbol} no timeframe {timeframe}...")
+                print(f"Analisando {symbol} no timeframe {timeframe}...")
                 
+                # CORRIGIDO: stop_loss deve ser positivo (0.02, não -0.02)
                 await gr.stop_dinamico(
                         symbol=symbol, 
                         take_profit=0.04,
-                        stop_loss=-0.02,
+                        stop_loss=0.02,
                         context=context 
                     )
                 
@@ -305,7 +321,7 @@ async def trading_task(context):
                 
                 if df is None or df.empty:
                     logger.warning(f"DataFrame vazio para {symbol} no timeframe {timeframe}. Pulando para o próximo ativo.")
-                    #await context.bot.send_message(chat_id=chat_id, text=f"⚠️ DataFrame vazio para {symbol} no timeframe {timeframe}.")
+                    await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Dados insuficientes para {symbol}")
                     continue
 
                 if not await gr.posicao_max(symbol, posicao_max):
@@ -321,29 +337,63 @@ async def trading_task(context):
                     tem_ordem_aberta = await gr.ultima_ordem_aberta(symbol)
                     
                     if not tem_ordem_aberta:
-                        if side != 'short' and verificar_long(df): #and tipo_operacao == 'LONG'
+                        # CORRIGIDO: Validação adicional antes de verificar long
+                        if side != 'short' and df is not None and not df.empty and verificar_long(df):
                             await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol} (LONG)...")
+                            
+                            # CORRIGIDO: Validação do modelo
                             model, scaler = treina_modelo(df)
+                            if model is None or scaler is None:
+                                await context.bot.send_message(
+                                    chat_id=chat_id, 
+                                    text=f"❌ Erro ao treinar modelo para {symbol}"
+                                )
+                                continue
+                            
                             preco_futuro = predict(df, model=model, scaler=scaler)
+                            if preco_futuro is None:
+                                await context.bot.send_message(
+                                    chat_id=chat_id, 
+                                    text=f"❌ Erro na predição para {symbol}"
+                                )
+                                continue
+                            
                             await context.bot.send_message(chat_id=chat_id, text=f"💰 Valor previsto para {symbol}: {preco_futuro}")
                             await context.bot.send_message(chat_id=chat_id, text=f"💰 Valor atual para {symbol}: {df['close'].iloc[-1]}")
 
                             if df['close'].iloc[-1] <= preco_futuro:
                                 await binance.abrir_long(symbol, posicao_max, context)
                             else:
-                                await context.bot.send_message(chat_id=chat_id, text=f"❌Não foi possível abrir posição: a predição da IA é de QUEDA.")
+                                await context.bot.send_message(chat_id=chat_id, text=f"❌ Não foi possível abrir posição: a predição da IA é de QUEDA.")
 
-                        elif side != 'long' and verificar_short(df): #and tipo_operacao == 'SHORT'
+                        # CORRIGIDO: Validação adicional antes de verificar short
+                        elif side != 'long' and df is not None and not df.empty and verificar_short(df):
                             await context.bot.send_message(chat_id=chat_id, text=f"⏳ Modelo XGB sendo calculado em {symbol} (SHORT)...")
+                            
+                            # CORRIGIDO: Validação do modelo
                             model, scaler = treina_modelo(df)
+                            if model is None or scaler is None:
+                                await context.bot.send_message(
+                                    chat_id=chat_id, 
+                                    text=f"❌ Erro ao treinar modelo para {symbol}"
+                                )
+                                continue
+                            
                             preco_futuro = predict(df, model=model, scaler=scaler)
+                            if preco_futuro is None:
+                                await context.bot.send_message(
+                                    chat_id=chat_id, 
+                                    text=f"❌ Erro na predição para {symbol}"
+                                )
+                                continue
+                            
                             await context.bot.send_message(chat_id=chat_id, text=f"💰 Valor previsto para {symbol}: {preco_futuro}")
                             await context.bot.send_message(chat_id=chat_id, text=f"💰 Valor atual para {symbol}: {df['close'].iloc[-1]}")
                             
                             if df['close'].iloc[-1] >= preco_futuro:
                                 await binance.abrir_short(symbol, posicao_max, context)
                             else:
-                                await context.bot.send_message(chat_id=chat_id, text=f"❌Não foi possível abrir posição: a predição da IA é de ALTA.")
+                                await context.bot.send_message(chat_id=chat_id, text=f"❌ Não foi possível abrir posição: a predição da IA é de ALTA.")
 
     except Exception as e:
         logger.error(f"Erro no trading task: {e}")
@@ -375,10 +425,11 @@ async def trading_task_btc_1m(context):
             #             context=context 
             #         )
             
+            # CORRIGIDO: stop_loss deve ser positivo
             await gr.stop_dinamico(
                         symbol=symbol, 
                         take_profit=0.08,
-                        stop_loss=-0.02,
+                        stop_loss=0.02,
                         context=context 
                     )
             # Verificar posição
@@ -668,7 +719,7 @@ def main():
         # Adiciona handlers
         application.add_handler(CommandHandler("ola", start))
         application.add_handler(CommandHandler("selecionarMOEDAS", selecionar_moedas_handler))
-        application.add_handler(CommandHandler("operarXGB", iniciar_bot))
+        application.add_handler(CommandHandler("operarXGB", iniciar_mr_xgb))
         application.add_handler(CommandHandler("pararXGB", parar_bot))
         application.add_handler(CommandHandler("operarMASlowStochastic", ma_slowStochastic))
         application.add_handler(CommandHandler("pararMASlowStochastic", parar_ma_slow_stochastic))
