@@ -61,7 +61,7 @@ async def start(update: Update, context: CallbackContext):
 
 # FUNÇÕES DE INICIAR !!
 
-async def iniciar_macd(update: Update, context: CallbackContext):
+async def iniciar_macd_clustering(update: Update, context: CallbackContext):
     tf = context.args[0] if context.args else '4h'
     
     # Validação dos timeframes permitidos
@@ -97,7 +97,7 @@ async def iniciar_macd(update: Update, context: CallbackContext):
         parse_mode="Markdown"
     )
 
-async def ma_slowStochastic(update: Update, context: CallbackContext):
+async def iniciar_ma_slowStochastic(update: Update, context: CallbackContext):
     tf = context.args[0] if context.args else '4h'
     
     # Validação dos timeframes permitidos
@@ -199,7 +199,7 @@ async def iniciar_mr_xgb(update: Update, context: CallbackContext):
         logger.error(f"Erro ao iniciar bot: {e}")
         await update.message.reply_text(f"❌ Erro ao iniciar: {str(e)}")
 
-async def iniciar_bot_simples(update: Update, context: CallbackContext):
+async def iniciar_bot_1m_btc(update: Update, context: CallbackContext):
     try:
         tf = '1m'
         context.chat_data['timeframe_operacao_simples'] = tf
@@ -302,8 +302,8 @@ async def macd_rsi_xgb(context):
             for _, row in df_config.iterrows():
                 symbol = row['symbol']
                 posicao_max = row['tamanho']
-                await context.bot.send_message(chat_id=chat_id, text=f"🔎 Analisando {symbol} no timeframe {timeframe}...")
-                print(f"Analisando {symbol} no timeframe {timeframe}...")
+                # await context.bot.send_message(chat_id=chat_id, text=f"🔎 Analisando {symbol} no timeframe {timeframe}...")
+                # print(f"Analisando {symbol} no timeframe {timeframe}...")
                 
                 # CORRIGIDO: stop_loss deve ser positivo (0.02, não -0.02)
                 await gr.stop_dinamico(
@@ -479,7 +479,7 @@ async def parar_rompimento(update: Update, context: CallbackContext):
     except Exception as e:
         await update.message.reply_text(f"❌ Erro ao parar rompimento: {e}")
 
-async def parar_bot(update: Update, context: CallbackContext):
+async def parar_bot_mr_xgb(update: Update, context: CallbackContext):
     """Handler do comando /parar"""
     try:
         if hasattr(context, 'job_queue') and context.job_queue:
@@ -495,7 +495,7 @@ async def parar_bot(update: Update, context: CallbackContext):
         logger.error(f"Erro ao parar bot: {e}")
         await update.message.reply_text(f"❌ Erro ao parar: {str(e)}")
 
-async def parar_bot_simples(update: Update, context: CallbackContext):
+async def parar_bot_1m_btc(update: Update, context: CallbackContext):
     try:
         for job in context.job_queue.jobs():
             if job.name == "btc_simples_job":
@@ -506,7 +506,7 @@ async def parar_bot_simples(update: Update, context: CallbackContext):
         logger.error(f"Erro ao parar bot simples: {e}")
         await update.message.reply_text(f"❌ Erro ao parar bot simples: {str(e)}")
 
-async def parar_macd(update: Update, context: CallbackContext):
+async def parar_macd_clustering(update: Update, context: CallbackContext):
     for job in context.job_queue.jobs():
         if job.name == "macd_job":
             job.schedule_removal()
@@ -525,6 +525,40 @@ async def iniciar_monitor_risco(update: Update, context: CallbackContext):
     Inicia o monitor de gerenciamento de risco que roda a cada 1 minuto.
     Monitora TODAS as posições abertas e aplica stop dinâmico automaticamente.
     """
+    def _parse_percentage_arg(arg: str, default: float) -> float:
+        """Converte argumento textual em decimal (2% -> 0.02)."""
+        if arg is None:
+            return default
+        cleaned = arg.strip().replace('%', '').replace(',', '.').lower()
+        if not cleaned:
+            return default
+        try:
+            value = float(cleaned)
+            # Se o valor for maior que 1 (ex: 2 para 2%), converte para decimal
+            if value > 1:
+                value /= 100.0
+            # Garante que o valor seja positivo
+            if value <= 0:
+                raise ValueError
+            return value
+        except (ValueError, TypeError):
+            return default
+
+    # Valores padrão
+    default_stop = 0.02
+    default_take = 0.02
+
+    # Lê argumentos do comando: /iniciarMonitorRisco [stop_loss] [take_profit]
+    args = context.args if context.args else []
+    stop_loss = _parse_percentage_arg(args[0] if len(args) > 0 else None, default_stop)
+    take_profit = _parse_percentage_arg(args[1] if len(args) > 1 else None, default_take)
+
+    # Persiste a configuração no chat_data para referência futura, se necessário
+    context.chat_data['risk_monitor_config'] = {
+        'stop_loss': stop_loss,
+        'take_profit': take_profit,
+    }
+
     # Cancela job anterior se existir
     for job in context.job_queue.jobs():
         if job.name == "risk_monitor_job":
@@ -536,13 +570,17 @@ async def iniciar_monitor_risco(update: Update, context: CallbackContext):
         interval=60,  # 1 minuto
         first=5,  # Começa após 5 segundos
         chat_id=update.effective_chat.id,
-        name="risk_monitor_job"
+        name="risk_monitor_job",
+        # Passa os valores para o job
+        data={'stop_loss': stop_loss, 'take_profit': take_profit}
     )
     
     await update.message.reply_text(
         "✅ *Monitor de Risco Ativado!*\n\n"
         "🔄 Verificando posições abertas a cada 1 minuto\n"
         "📊 Aplicando stop dinâmico automaticamente\n"
+        f"🛑 Stop Loss: *{stop_loss:.2%}*\n"
+        f"🎯 Take Profit: *{take_profit:.2%}*\n"
         "⚡ Funciona com TODAS as estratégias simultaneamente",
         parse_mode="Markdown"
     )
@@ -720,19 +758,19 @@ def main():
         application.add_handler(CommandHandler("ola", start))
         application.add_handler(CommandHandler("selecionarMOEDAS", selecionar_moedas_handler))
         application.add_handler(CommandHandler("operarXGB", iniciar_mr_xgb))
-        application.add_handler(CommandHandler("pararXGB", parar_bot))
-        application.add_handler(CommandHandler("operarMASlowStochastic", ma_slowStochastic))
+        application.add_handler(CommandHandler("pararXGB", parar_bot_mr_xgb))
+        application.add_handler(CommandHandler("operarMASlowStochastic", iniciar_ma_slowStochastic))
         application.add_handler(CommandHandler("pararMASlowStochastic", parar_ma_slow_stochastic))
         application.add_handler(CommandHandler("regime", regime_handler))
         application.add_handler(CommandHandler("estrategias", estrategia_handler))
-        application.add_handler(CommandHandler("operar1mBTC", iniciar_bot_simples))
-        application.add_handler(CommandHandler("parar1mBTC", parar_bot_simples))
+        application.add_handler(CommandHandler("operar1mBTC", iniciar_bot_1m_btc))
+        application.add_handler(CommandHandler("parar1mBTC", parar_bot_1m_btc))
         application.add_handler(CommandHandler("operarROMPIMENTO", iniciar_rompimento))
         application.add_handler(CommandHandler("pararROMPIMENTO", parar_rompimento))
         application.add_handler(CommandHandler("supertrend", supertrend_handler))
         application.add_handler(CommandHandler("eventos", eventos_handler))
-        application.add_handler(CommandHandler("operarMACD", iniciar_macd))
-        application.add_handler(CommandHandler("pararMACD", parar_macd))
+        application.add_handler(CommandHandler("operarMACD", iniciar_macd_clustering))
+        application.add_handler(CommandHandler("pararMACD", parar_macd_clustering))
         application.add_handler(CommandHandler("noticias", noticias_handler))
         application.add_handler(CommandHandler("iniciarMonitorRisco", iniciar_monitor_risco))
         application.add_handler(CommandHandler("pararMonitorRisco", parar_monitor_risco))

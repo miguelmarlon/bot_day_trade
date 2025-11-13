@@ -14,6 +14,7 @@ import os
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
+from zipfile import BadZipFile
 import logging
 
 # Configuração de logging
@@ -153,16 +154,25 @@ class ExcelExporter:
             
             # Verifica se arquivo existe
             if os.path.exists(filepath):
-                # Carrega dados existentes
-                df_existing = pd.read_excel(filepath)
+                df_existing = pd.DataFrame()
+                try:
+                    df_existing = pd.read_excel(filepath)
+                except (ValueError, BadZipFile) as read_error:
+                    backup = f"{filepath}.bak_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                    logger.warning(f"⚠️ Arquivo {filename} corrompido ({read_error}). Fazendo backup em {backup} e recriando.")
+                    try:
+                        os.replace(filepath, backup)
+                    except OSError as backup_error:
+                        logger.warning(f"⚠️ Falha ao mover arquivo corrompido: {backup_error}")
                 
-                # Verifica se trade_id já existe para evitar duplicatas
-                if trade_data.get('trade_id') in df_existing['Trade ID'].values:
-                    logger.warning(f"⚠️ Trade {trade_data.get('trade_id')} já existe no histórico")
-                    return False
-                
-                # Concatena novos dados
-                df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+                if not df_existing.empty:
+                    # Verifica se trade_id já existe para evitar duplicatas
+                    if 'Trade ID' in df_existing.columns and trade_data.get('trade_id') in df_existing['Trade ID'].values:
+                        logger.warning(f"⚠️ Trade {trade_data.get('trade_id')} já existe no histórico")
+                        return False
+                    df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+                else:
+                    df_combined = df_new
             else:
                 df_combined = df_new
             
@@ -220,8 +230,21 @@ class ExcelExporter:
             
             # Verifica se arquivo existe
             if os.path.exists(filepath):
-                df_existing = pd.read_excel(filepath)
-                df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+                df_existing = pd.DataFrame()
+                try:
+                    df_existing = pd.read_excel(filepath)
+                except (ValueError, BadZipFile) as read_error:
+                    backup = f"{filepath}.bak_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                    logger.warning(f"⚠️ Arquivo {filename} corrompido ({read_error}). Fazendo backup em {backup} e recriando.")
+                    try:
+                        os.replace(filepath, backup)
+                    except OSError as backup_error:
+                        logger.warning(f"⚠️ Falha ao mover arquivo corrompido: {backup_error}")
+
+                if not df_existing.empty:
+                    df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+                else:
+                    df_combined = df_new
             else:
                 df_combined = df_new
             
@@ -263,7 +286,16 @@ class ExcelExporter:
                 logger.warning("⚠️ Arquivo de histórico não encontrado")
                 return False
             
-            df = pd.read_excel(history_file)
+            try:
+                df = pd.read_excel(history_file)
+            except (ValueError, BadZipFile) as read_error:
+                backup = f"{history_file}.bak_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                logger.warning(f"⚠️ Arquivo de histórico corrompido ({read_error}). Movendo para {backup} e abortando resumo.")
+                try:
+                    os.replace(history_file, backup)
+                except OSError as backup_error:
+                    logger.warning(f"⚠️ Falha ao mover histórico corrompido: {backup_error}")
+                return False
             
             # Converte datas com formato flexível
             df['Data Entrada'] = pd.to_datetime(df['Data Entrada'], format='mixed', errors='coerce')

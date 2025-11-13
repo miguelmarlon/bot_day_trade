@@ -7,7 +7,7 @@ import ccxt.pro
 import decimal
 import asyncio
 import aiohttp
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Set
 from telegram.ext import CallbackContext
 from utils.binance_client import BinanceHandler
 from typing import List, Tuple, Optional
@@ -29,30 +29,22 @@ def _get_excel_exporter():
         return None, None
 
 class GerenciamentoRiscoAsync:
-
-    def __init__(self, binance_handler: BinanceHandler):
+    def __init__(self, binance_handler: BinanceHandler, config_path: str = None):
         """
         Inicializa o gerenciamento de risco com um handler da Binance já conectado.
-        Este __init__ não deve ser chamado diretamente. Use o método create().
         """
         self.binance_handler = binance_handler
+        self.config_path = config_path
+        self._loss_notified = {}
+        self._highest_profit_reached = {}
+        self._is_trailing_active = {}
+        self._highest_price_reached = {}
+        self._current_trailing_stop_price = {}
+        self._position_entry_data = {}
+        self._posicoes_abertas_anteriormente: Set[str] = set()
         self._closed = False
-        self._highest_profit_reached: Dict[str, float] = {} 
-         # --- Alterações e Adições aqui ---
-        # Mantemos _highest_profit_reached se ele tiver uma finalidade específica como percentual de lucro
-        self._highest_profit_reached: Dict[str, float] = {} 
-        # Novo atributo para armazenar o preço mais alto/baixo atingido, usado para trailing STOP PRICE
-        self._highest_price_reached: Dict[str, float] = {} 
-        # Novo atributo para armazenar o preço atual do trailing stop loss (onde a ordem SL deve estar)
-        self._current_trailing_stop_price: Dict[str, float] = {}
-        # Atributo para controlar se o trailing está ativo para um símbolo
-        self._is_trailing_active: Dict[str, bool] = {} 
-        # Controla notificações de prejuízo (evita spam)
-        self._loss_notified: Dict[str, bool] = {}
-        # --- Fim das Alterações e Adições ---
-
-        self.session = aiohttp.ClientSession()
         self._load_trailing_data()
+        self.session = aiohttp.ClientSession()
 
     async def initialize_from_open_positions(self):
         """
@@ -211,6 +203,21 @@ class GerenciamentoRiscoAsync:
                             if "current_trailing_stop_price" in values and values["current_trailing_stop_price"] is not None:
                                 self._current_trailing_stop_price[symbol] = values["current_trailing_stop_price"]
                                 # print(f"[{symbol}] ✅ Carregado current_trailing_stop_price: {values['current_trailing_stop_price']:.8f}")
+
+                            entry_data = values.get("entry_data")
+                            if isinstance(entry_data, dict):
+                                # Normaliza valores numéricos
+                                try:
+                                    if 'entry_price' in entry_data and entry_data['entry_price'] is not None:
+                                        entry_data['entry_price'] = float(entry_data['entry_price'])
+                                except (ValueError, TypeError):
+                                    entry_data['entry_price'] = None
+                                try:
+                                    if 'amount' in entry_data and entry_data['amount'] is not None:
+                                        entry_data['amount'] = float(entry_data['amount'])
+                                except (ValueError, TypeError):
+                                    entry_data['amount'] = 0.0
+                                self._position_entry_data[symbol] = entry_data
                         
                         print(f"✅ Trailing data carregado com sucesso!")
                         
@@ -229,7 +236,8 @@ class GerenciamentoRiscoAsync:
         
         # Considera todos os dicionários relevantes
         all_symbols = set(self._highest_profit_reached.keys()) | set(self._is_trailing_active.keys()) | \
-                      set(self._highest_price_reached.keys()) | set(self._current_trailing_stop_price.keys())
+              set(self._highest_price_reached.keys()) | set(self._current_trailing_stop_price.keys()) | \
+              set(self._position_entry_data.keys())
         
         for symbol in all_symbols:
             # CORREÇÃO: Salva se tiver QUALQUER dado relevante, não só highest_profit_reached
@@ -245,6 +253,9 @@ class GerenciamentoRiscoAsync:
             
             if symbol in self._current_trailing_stop_price and self._current_trailing_stop_price[symbol] is not None:
                 should_save = True
+
+            if symbol in self._position_entry_data:
+                should_save = True
             
             if should_save:
                 # Obtém highest_profit_percentage, mas converte -inf para None
@@ -256,7 +267,8 @@ class GerenciamentoRiscoAsync:
                     "highest_profit_percentage": profit_percent,
                     "is_trailing_active": self._is_trailing_active.get(symbol, False),
                     "highest_price_reached": self._highest_price_reached.get(symbol),
-                    "current_trailing_stop_price": self._current_trailing_stop_price.get(symbol)
+                    "current_trailing_stop_price": self._current_trailing_stop_price.get(symbol),
+                    "entry_data": self._position_entry_data.get(symbol)
                 }
                 
                 # DEBUG: Log o que está sendo salvo (formatação corrigida)
@@ -330,11 +342,28 @@ class GerenciamentoRiscoAsync:
             # Exporta para Excel
             if export_closed_trade(trade_data):
                 print(f"[{symbol}] ✅ Operação exportada para Excel")
+                self._update_daily_summary()
             else:
                 print(f"[{symbol}] ⚠️ Falha ao exportar para Excel")
                 
         except Exception as e:
             print(f"[{symbol}] ❌ Erro ao exportar trade: {e}")
+
+    def _update_daily_summary(self) -> None:
+        """Gera o resumo diário após uma exportação bem-sucedida."""
+        try:
+            from scripts.excel_exporter import generate_daily_summary
+        except ImportError as import_error:
+            print(f"⚠️ Não foi possível importar generate_daily_summary: {import_error}")
+            return
+
+        try:
+            if generate_daily_summary():
+                print("📊 resumo_diario.xlsx atualizado")
+            else:
+                print("⚠️ Falha ao atualizar resumo diário")
+        except Exception as summary_error:
+            print(f"❌ Erro ao atualizar resumo diário: {summary_error}")
 
     async def close(self):
         """Fecha todos os recursos de forma segura."""
@@ -691,6 +720,8 @@ class GerenciamentoRiscoAsync:
                     del self._is_trailing_active[symbol]
                 if symbol in self._loss_notified:
                     del self._loss_notified[symbol]
+                if symbol in self._position_entry_data:
+                    del self._position_entry_data[symbol]
                 self._save_trailing_data()
                 return
             
@@ -819,6 +850,8 @@ class GerenciamentoRiscoAsync:
                     del self._is_trailing_active[symbol]
                 if symbol in self._loss_notified:
                     del self._loss_notified[symbol]
+                if symbol in self._position_entry_data:
+                    del self._position_entry_data[symbol]
                 self._save_trailing_data()
 
             # Verifica se deve fechar por TAKE PROFIT
@@ -855,6 +888,8 @@ class GerenciamentoRiscoAsync:
                     del self._is_trailing_active[symbol]
                 if symbol in self._loss_notified:
                     del self._loss_notified[symbol]
+                if symbol in self._position_entry_data:
+                    del self._position_entry_data[symbol]
                 self._save_trailing_data()
 
             else:
@@ -978,6 +1013,38 @@ class GerenciamentoRiscoAsync:
             amount = abs(float(position['info']['positionAmt'])) 
             entry_price = float(position['entryPrice'])
             mark_price = float(position['info']['markPrice'])
+            unrealized_pnl = float(position['info'].get('unRealizedProfit', 0))  # PNL real da Binance
+            
+            # 🆕 Armazena dados de entrada da posição na primeira vez que é detectada
+            if side in ('long', 'short') and amount > 0:
+                stored_entry = self._position_entry_data.get(symbol)
+                should_persist = False
+
+                if stored_entry is None:
+                    self._position_entry_data[symbol] = {
+                        'entry_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'entry_price': entry_price,
+                        'side': side,
+                        'amount': amount
+                    }
+                    print(f"[{symbol}] 📝 Registrada entrada da posição: {side.upper()} | Preço: {entry_price:.8f} | Qtd: {amount:.4f}")
+                    should_persist = True
+                else:
+                    updated_fields = {}
+                    if abs(stored_entry.get('entry_price', 0) - entry_price) > 1e-8:
+                        updated_fields['entry_price'] = entry_price
+                    if stored_entry.get('side') != side:
+                        updated_fields['side'] = side
+                        updated_fields['entry_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    if abs(float(stored_entry.get('amount', 0)) - amount) > 1e-8:
+                        updated_fields['amount'] = amount
+                    if updated_fields:
+                        stored_entry.update(updated_fields)
+                        print(f"[{symbol}] ✏️ Atualizando dados da posição: {updated_fields}")
+                        should_persist = True
+
+                if should_persist:
+                    self._save_trailing_data()
             
             # 🚨 VERIFICAÇÃO DE EMERGÊNCIA: Stop loss já violado durante reinício/downtime?
             if symbol in self._current_trailing_stop_price:
@@ -999,15 +1066,46 @@ class GerenciamentoRiscoAsync:
                             except:
                                 pass
                         
+                        # Usa PNL real da Binance (mais preciso que calcular manualmente)
+                        pnl_value = unrealized_pnl
+                        pnl_percentage = ((mark_price - entry_price) / entry_price) if entry_price > 0 else 0
+                        
+                        # Recupera dados de entrada
+                        entry_time_str = self._position_entry_data.get(symbol, {}).get('entry_time', None)
+                        
                         # Fecha posição imediatamente
                         try:
-                            await self.fecha_pnl(
+                            await self.encerra_posicao(symbol, context, try_limit_first=True)
+                            
+                            # Exporta dados para Excel
+                            self._export_trade_to_excel(
                                 symbol=symbol,
-                                quantidade=amount,
-                                operacao='long',
-                                context=context,
-                                motivo="Stop Loss violado durante downtime"
+                                entry_price=entry_price,
+                                exit_price=mark_price,
+                                pnl=pnl_value,
+                                percentage=pnl_percentage,
+                                reason="Stop Loss violado durante downtime (Trailing Stop)",
+                                entry_time=entry_time_str
                             )
+                            
+                            # Limpa dados do trailing (LONG)
+                            for key in list(self._highest_profit_reached.keys()):
+                                if key == symbol:
+                                    del self._highest_profit_reached[key]
+                            for key in list(self._is_trailing_active.keys()):
+                                if key == symbol:
+                                    del self._is_trailing_active[key]
+                            for key in list(self._highest_price_reached.keys()):
+                                if key == symbol:
+                                    del self._highest_price_reached[key]
+                            for key in list(self._current_trailing_stop_price.keys()):
+                                if key == symbol:
+                                    del self._current_trailing_stop_price[key]
+                            for key in list(self._position_entry_data.keys()):
+                                if key == symbol:
+                                    del self._position_entry_data[key]
+                            self._save_trailing_data()
+                            
                             return
                         except Exception as close_error:
                             error_msg = f"❌ Erro ao fechar posição de emergência: {close_error}"
@@ -1035,15 +1133,46 @@ class GerenciamentoRiscoAsync:
                             except:
                                 pass
                         
+                        # Usa PNL real da Binance (mais preciso que calcular manualmente)
+                        pnl_value = unrealized_pnl
+                        pnl_percentage = ((entry_price - mark_price) / entry_price) if entry_price > 0 else 0
+                        
+                        # Recupera dados de entrada
+                        entry_time_str = self._position_entry_data.get(symbol, {}).get('entry_time', None)
+                        
                         # Fecha posição imediatamente
                         try:
-                            await self.fecha_pnl(
+                            await self.encerra_posicao(symbol, context, try_limit_first=True)
+                            
+                            # Exporta dados para Excel
+                            self._export_trade_to_excel(
                                 symbol=symbol,
-                                quantidade=amount,
-                                operacao='short',
-                                context=context,
-                                motivo="Stop Loss violado durante downtime"
+                                entry_price=entry_price,
+                                exit_price=mark_price,
+                                pnl=pnl_value,
+                                percentage=pnl_percentage,
+                                reason="Stop Loss violado durante downtime (Trailing Stop)",
+                                entry_time=entry_time_str
                             )
+                            
+                            # Limpa dados do trailing (SHORT)
+                            for key in list(self._highest_profit_reached.keys()):
+                                if key == symbol:
+                                    del self._highest_profit_reached[key]
+                            for key in list(self._is_trailing_active.keys()):
+                                if key == symbol:
+                                    del self._is_trailing_active[key]
+                            for key in list(self._highest_price_reached.keys()):
+                                if key == symbol:
+                                    del self._highest_price_reached[key]
+                            for key in list(self._current_trailing_stop_price.keys()):
+                                if key == symbol:
+                                    del self._current_trailing_stop_price[key]
+                            for key in list(self._position_entry_data.keys()):
+                                if key == symbol:
+                                    del self._position_entry_data[key]
+                            self._save_trailing_data()
+                            
                             return
                         except Exception as close_error:
                             error_msg = f"❌ Erro ao fechar posição de emergência: {close_error}"
@@ -1061,13 +1190,142 @@ class GerenciamentoRiscoAsync:
             if not is_position_open or amount == 0:
                 print(f"[{symbol}] Posição não está aberta ou quantidade é zero (side: {side}, amount: {amount})")
                
-                # IMPORTANTE: NÃO limpa dados de trailing imediatamente
-                # Mantém os dados por alguns ciclos para evitar perda de histórico durante atualizações de ordens
-                # Os dados serão limpos apenas quando confirmado que a posição foi realmente fechada
-                print(f"[{symbol}] ⚠️ Mantendo dados de trailing (posição pode estar sendo atualizada)")
+                trailing_active = self._is_trailing_active.get(symbol, False)
+                saved_entry_data = self._position_entry_data.get(symbol, {})
+
+                if saved_entry_data:
+                    context_label = "trailing ativo" if trailing_active else "sem trailing ativo"
+                    print(f"[{symbol}] 📊 Posição fechada detectada ({context_label}) - iniciando exportação")
+
+                    exit_payload = None
+                    exit_reason = "Fechamento detectado"
+
+                    try:
+                        recent_orders = await asyncio.wait_for(
+                            self.binance_handler.client.fetch_orders(symbol, limit=10),
+                            timeout=10.0
+                        )
+                    except asyncio.TimeoutError:
+                        recent_orders = []
+                        print(f"[{symbol}] ⏱️ Timeout ao buscar ordens para exportação")
+                    except Exception as orders_error:
+                        recent_orders = []
+                        print(f"[{symbol}] ⚠️ Erro ao buscar ordens para exportação: {orders_error}")
+
+                    for order in reversed(recent_orders):
+                        if order.get('status') == 'filled' and order.get('side') in ('sell', 'buy'):
+                            exit_payload = order
+                            order_type = order.get('type', '').upper()
+                            if 'STOP' in order_type:
+                                exit_reason = "Stop Loss (ordem)"
+                            elif 'TAKE_PROFIT' in order_type:
+                                exit_reason = "Take Profit (ordem)"
+                            else:
+                                exit_reason = "Fechamento por ordem"
+                            break
+
+                    if exit_payload is None:
+                        try:
+                            recent_trades = await asyncio.wait_for(
+                                self.binance_handler.client.fetch_my_trades(symbol, limit=10),
+                                timeout=10.0
+                            )
+                        except asyncio.TimeoutError:
+                            recent_trades = []
+                            print(f"[{symbol}] ⏱️ Timeout ao buscar trades para exportação")
+                        except Exception as trades_error:
+                            recent_trades = []
+                            print(f"[{symbol}] ⚠️ Erro ao buscar trades para exportação: {trades_error}")
+
+                        for trade in reversed(recent_trades):
+                            trade_amount = float(trade.get('amount', 0) or 0)
+                            if trade_amount > 0:
+                                exit_payload = trade
+                                exit_reason = "Fechamento por trade"
+                                break
+
+                    if exit_payload is not None:
+                        saved_entry_price = float(saved_entry_data.get('entry_price', entry_price or 0))
+                        saved_entry_time = saved_entry_data.get('entry_time', None)
+                        saved_side = saved_entry_data.get('side', side)
+                        saved_amount = float(saved_entry_data.get('amount', amount or 0))
+                        saved_highest_price = self._highest_price_reached.get(symbol, 0.0)
+
+                        info = exit_payload.get('info', {}) if isinstance(exit_payload, dict) else {}
+                        exit_price_raw = exit_payload.get('average') if isinstance(exit_payload, dict) else exit_payload.get('price')
+                        exit_price_fallback = exit_payload.get('price') if isinstance(exit_payload, dict) else exit_payload.get('price')
+                        exit_price = float(exit_price_raw or exit_price_fallback or 0)
+
+                        if exit_price == 0 and isinstance(exit_payload, dict):
+                            exit_price = float(info.get('avgPrice') or info.get('stopPrice') or 0)
+
+                        filled_key = 'filled' if isinstance(exit_payload, dict) else 'amount'
+                        filled_amount_value = exit_payload.get(filled_key, saved_amount)
+                        filled_amount = float(filled_amount_value or saved_amount or amount or 0)
+
+                        pnl_value_raw = info.get('realizedPnl') if isinstance(info, dict) else 0
+                        pnl_value = float(pnl_value_raw or 0)
+
+                        if pnl_value == 0 and saved_entry_price > 0 and filled_amount > 0 and exit_price > 0:
+                            if saved_side == 'long':
+                                pnl_value = (exit_price - saved_entry_price) * filled_amount
+                            elif saved_side == 'short':
+                                pnl_value = (saved_entry_price - exit_price) * filled_amount
+
+                        if saved_side == 'long' and saved_entry_price > 0:
+                            pnl_percentage = (exit_price - saved_entry_price) / saved_entry_price
+                        elif saved_side == 'short' and saved_entry_price > 0:
+                            pnl_percentage = (saved_entry_price - exit_price) / saved_entry_price
+                        else:
+                            pnl_percentage = 0.0
+
+                        if exit_price > 0 and filled_amount > 0:
+                            print(
+                                f"[{symbol}] 💾 Exportando operação fechada: PNL={pnl_value:.2f} ({pnl_percentage:.2%}) | Motivo: {exit_reason}"
+                            )
+                            self._export_trade_to_excel(
+                                symbol=symbol,
+                                entry_price=saved_entry_price,
+                                exit_price=exit_price,
+                                pnl=pnl_value,
+                                percentage=pnl_percentage,
+                                reason=exit_reason,
+                                entry_time=saved_entry_time
+                            )
+
+                            if context:
+                                try:
+                                    await self.enviar_mensagem(
+                                        context,
+                                        f"✅ Operação {symbol} exportada\n"
+                                        f"💰 PNL: {pnl_value:.2f} USD ({pnl_percentage:.2%})\n"
+                                        f"📊 Motivo: {exit_reason}\n"
+                                        f"🎯 Maior preço: {saved_highest_price:.8f}"
+                                    )
+                                except Exception as notify_error:
+                                    print(f"[{symbol}] Erro ao notificar exportação: {notify_error}")
+                        else:
+                            print(f"[{symbol}] ⚠️ Dados insuficientes para exportar operação fechada")
+                    else:
+                        print(f"[{symbol}] ⚠️ Não foi possível identificar ordens ou trades para exportação")
+                else:
+                    print(f"[{symbol}] ℹ️ Nenhum dado de entrada armazenado para exportar")
                 
-                # Apenas limpa se realmente não houver posição após verificação adicional
-                # Esta limpeza será feita em fecha_pnl quando a posição for realmente fechada
+                # Agora sim, limpa os dados do trailing
+                if symbol in self._highest_profit_reached:
+                    del self._highest_profit_reached[symbol]
+                if symbol in self._is_trailing_active:
+                    del self._is_trailing_active[symbol]
+                if symbol in self._highest_price_reached:
+                    del self._highest_price_reached[symbol]
+                if symbol in self._current_trailing_stop_price:
+                    del self._current_trailing_stop_price[symbol]
+                if symbol in self._loss_notified:
+                    del self._loss_notified[symbol]
+                if symbol in self._position_entry_data:
+                    del self._position_entry_data[symbol]
+                self._save_trailing_data()
+                print(f"[{symbol}] 🧹 Dados de trailing limpos após verificação de exportação")
                 return
 
             # Busca ordens existentes com timeout
@@ -1164,15 +1422,15 @@ class GerenciamentoRiscoAsync:
                 highest_price = self._highest_price_reached[symbol]
                 
                 # DEBUG: Mostra valor atual armazenado
-                print(f"[{symbol}] 🔍 DEBUG: highest_price usado para cálculo: {highest_price:.8f}")
+                # print(f"[{symbol}] 🔍 DEBUG: highest_price usado para cálculo: {highest_price:.8f}")
                 
                 # msg = f'📊 {symbol} LONG: {price_var:.2f}% | Progresso até TP: {progress_percent:.1f}% | Maior preço: {highest_price:.8f}'
                 # print(msg)
-                if context:
-                    try:
-                        await self.enviar_mensagem(context, msg)
-                    except Exception as notify_error:
-                        print(f"[{symbol}] Erro ao enviar mensagem de progresso: {notify_error}")
+                # if context:
+                #     try:
+                #         await self.enviar_mensagem(context, msg)
+                #     except Exception as notify_error:
+                #         print(f"[{symbol}] Erro ao enviar mensagem de progresso: {notify_error}")
 
                 # CONDIÇÃO AJUSTADA: Ativa quando atingir 50% do caminho até o take profit
                 # Isso torna o trailing stop mais agressivo e protege lucros mais cedo
@@ -1489,7 +1747,3 @@ class GerenciamentoRiscoAsync:
                 except Exception as notify_error:
                     print(f"[{symbol}] Erro ao notificar erro crítico: {notify_error}")
             
-# Exemplo de uso:
-# gr = GerenciamentoRiscoAsync()
-# await gr.fecha_pnl('BTC/USDT', -5, 10, context)
-# await gr.close()

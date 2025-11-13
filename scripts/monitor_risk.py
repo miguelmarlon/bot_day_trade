@@ -37,7 +37,6 @@ def _get_excel_exporter():
         logger.warning(f"⚠️ Excel Exporter não disponível: {e}")
         return None
 
-
 async def _notify_pnl_change(
     symbol: str,
     current_pnl_percentage: float,
@@ -147,6 +146,11 @@ async def monitor_risk_management(context: CallbackContext) -> None:
     try:
         chat_id = context.job.chat_id if hasattr(context, 'job') else context._chat_id
         
+        # Pega os valores de stop/take do job, com padrões de fallback
+        job_data = context.job.data if context.job and hasattr(context.job, 'data') else {}
+        take_profit_job = job_data.get('take_profit', 0.02)
+        stop_loss_job = job_data.get('stop_loss', 0.02)
+
         # Cria conexão com Binance
         binance = await BinanceHandler.create(testnet=True)
         gerenciador = GerenciamentoRiscoAsync(binance_handler=binance)
@@ -218,7 +222,7 @@ async def monitor_risk_management(context: CallbackContext) -> None:
         _positions_cache.clear()
         _positions_cache.update(current_symbols)
         
-        logger.info(f"📊 Monitorando {len(open_positions)} posição(ões) aberta(s)")
+        logger.info(f"📊 Monitorando {len(open_positions)} posição(ões) aberta(s) com SL={stop_loss_job:.2%} e TP={take_profit_job:.2%}")
         
         # Processa cada posição aberta
         for position in open_positions:
@@ -254,7 +258,7 @@ async def monitor_risk_management(context: CallbackContext) -> None:
                             'pnl_percentage': pnl_percentage / 100,  # Converte para decimal
                             'unrealized_pnl': unrealized_pnl,
                             'current_stop_loss': gerenciador._current_trailing_stop_price.get(symbol, 0),
-                            'take_profit': 0.04,  # TODO: Buscar do config
+                            'take_profit': take_profit_job,
                             'highest_price': gerenciador._highest_price_reached.get(symbol, 0),
                             'is_trailing_active': gerenciador._is_trailing_active.get(symbol, False),
                             'duration_minutes': 0,  # TODO: Calcular duração
@@ -300,18 +304,13 @@ async def monitor_risk_management(context: CallbackContext) -> None:
                 chat_id=chat_id
             )
             
-            # Configurações de risco (podem ser lidas de um config por símbolo)
-            # Por enquanto, usa valores padrão
-            take_profit = 0.04  # 4%
-            stop_loss = 0.02    # 2%
-            
             try:
-                # Aplica stop dinâmico
+                # Aplica stop dinâmico usando os valores do job
                 await asyncio.wait_for(
                     gerenciador.stop_dinamico(
                         symbol=symbol,
-                        take_profit=take_profit,
-                        stop_loss=stop_loss,
+                        take_profit=take_profit_job,
+                        stop_loss=stop_loss_job,
                         context=context
                     ),
                     timeout=30.0  # Timeout por símbolo

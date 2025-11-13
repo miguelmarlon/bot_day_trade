@@ -44,7 +44,7 @@ async def strategy_MA_SlowStochastic_Combo(binance, context, **kwargs):
         chat_id = context.job.chat_id if hasattr(context, 'job') else context._chat_id
 
         timeframe = context.chat_data.get('timeframe_ma_stochastic', '4h')
-        take_profit = 0.04
+        take_profit = 0.02
         
         print(f"\n{'='*60}")
         print(f"🚀 Iniciando ciclo da estratégia MA Slow Stochastic")
