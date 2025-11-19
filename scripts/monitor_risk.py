@@ -27,6 +27,11 @@ _positions_cache: Set[str] = set()
 # Formato: {symbol: last_notified_percentage}
 _last_notified_pnl: Dict[str, float] = {}
 
+# 🆕 Cache para rastrear posições já exportadas (evita duplicação)
+# Formato: {symbol: timestamp_da_exportacao}
+import time
+_recently_exported: Dict[str, float] = {}
+
 # Import do Excel Exporter - lazy import
 def _get_excel_exporter():
     """Lazy import do Excel Exporter."""
@@ -204,13 +209,223 @@ async def monitor_risk_management(context: CallbackContext) -> None:
                 text=f"🆕 Monitor de risco ativado para: {', '.join(new_positions)}"
             )
         
-        # Notifica posições fechadas
+        # Notifica posições fechadas com detalhes
         if closed_positions:
             logger.info(f"✅ Posições fechadas: {', '.join(closed_positions)}")
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"✅ Posições fechadas: {', '.join(closed_positions)}"
-            )
+            
+            # Para cada posição fechada, tenta buscar detalhes do fechamento
+            for symbol in closed_positions:
+                try:
+                    # 🛡️ PROTEÇÃO ANTI-DUPLICAÇÃO: Verifica se já foi exportado recentemente
+                    current_time = time.time()
+                    last_export_time = _recently_exported.get(symbol, 0)
+                    
+                    # Se foi exportado há menos de 60 segundos, pula
+                    if current_time - last_export_time < 60:
+                        logger.info(f"[{symbol}] ⏭️ Posição já exportada há {current_time - last_export_time:.0f}s, pulando...")
+                        continue
+                    
+                    # Busca as últimas ordens/trades para obter informações do fechamento
+                    try:
+                        recent_orders = await asyncio.wait_for(
+                            gerenciador.binance_handler.client.fetch_orders(symbol, limit=5),
+                            timeout=5.0
+                        )
+                    except asyncio.TimeoutError:
+                        recent_orders = []
+                    except Exception:
+                        recent_orders = []
+                    
+                    # Busca dados salvos da entrada da posição
+                    entry_data = gerenciador._position_entry_data.get(symbol, {})
+                    entry_price = entry_data.get('entry_price', 0)
+                    side = entry_data.get('side', 'unknown')
+                    entry_time = entry_data.get('entry_time', None)
+                    amount = entry_data.get('amount', 0)  # Quantidade de contratos
+                    
+                    # Se não tem dados salvos, tenta buscar dos trades recentes
+                    if not entry_price or side == 'unknown' or amount == 0:
+                        try:
+                            recent_trades = await asyncio.wait_for(
+                                gerenciador.binance_handler.client.fetch_my_trades(symbol, limit=20),
+                                timeout=5.0
+                            )
+                            
+                            # Busca trades de abertura (primeiro compra/venda recente)
+                            for trade in recent_trades:
+                                trade_side = trade.get('side', '').lower()
+                                trade_price = float(trade.get('price', 0))
+                                trade_amount = float(trade.get('amount', 0))
+                                
+                                if trade_price > 0 and trade_amount > 0:
+                                    if trade_side == 'buy':
+                                        side = 'long'
+                                        entry_price = trade_price
+                                        amount = trade_amount
+                                        break
+                                    elif trade_side == 'sell':
+                                        side = 'short'
+                                        entry_price = trade_price
+                                        amount = trade_amount
+                                        break
+                            
+                            logger.info(f"[{symbol}] 🔍 Dados de entrada recuperados dos trades: {side} @ {entry_price:.8f} | Qtd: {amount}")
+                        except Exception as trades_error:
+                            logger.warning(f"[{symbol}] ⚠️ Erro ao buscar trades para dados de entrada: {trades_error}")
+                    
+                    # Busca ordem de fechamento
+                    exit_order = None
+                    exit_reason = "Fechamento detectado"
+                    exit_price = 0
+                    MIN_VALID_PRICE = 0.00000001
+                    
+                    for order in reversed(recent_orders):
+                        if order.get('status') == 'filled':
+                            order_side = order.get('side', '').lower()
+                            # Para LONG: ordem de SELL fecha | Para SHORT: ordem de BUY fecha
+                            if (side == 'long' and order_side == 'sell') or (side == 'short' and order_side == 'buy'):
+                                exit_order = order
+                                order_type = order.get('type', '').upper()
+                                
+                                # Determina o motivo do fechamento
+                                if 'STOP' in order_type:
+                                    exit_reason = "🛑 Stop Loss"
+                                elif 'TAKE_PROFIT' in order_type:
+                                    exit_reason = "🎯 Take Profit"
+                                elif 'TRAILING' in order_type:
+                                    exit_reason = "📉 Trailing Stop"
+                                else:
+                                    exit_reason = "✋ Fechamento Manual"
+                                
+                                # Obtém preço de saída da ordem
+                                exit_price = float(order.get('average') or order.get('price') or 0)
+                                break
+                    
+                    # 🔍 BUSCA ALTERNATIVA: Se exit_price não for válido, busca de outras fontes
+                    if exit_price <= MIN_VALID_PRICE:
+                        logger.warning(f"[{symbol}] ⚠️ Preço de saída inválido da ordem ({exit_price}), buscando alternativas...")
+                        
+                        # Tentativa 1: Buscar dos trades recentes (mais preciso)
+                        try:
+                            if not recent_trades:
+                                recent_trades = await asyncio.wait_for(
+                                    gerenciador.binance_handler.client.fetch_my_trades(symbol, limit=10),
+                                    timeout=5.0
+                                )
+                            
+                            # Busca trade de fechamento (mesmo lado da ordem de saída)
+                            for trade in reversed(recent_trades):
+                                trade_side = trade.get('side', '').lower()
+                                trade_price = float(trade.get('price', 0))
+                                
+                                # Para LONG: fechamento é SELL | Para SHORT: fechamento é BUY
+                                if trade_price > MIN_VALID_PRICE:
+                                    if (side == 'long' and trade_side == 'sell') or (side == 'short' and trade_side == 'buy'):
+                                        exit_price = trade_price
+                                        logger.info(f"[{symbol}] ✅ Preço de saída recuperado dos trades: {exit_price:.8f}")
+                                        break
+                        except Exception as trades_alt_error:
+                            logger.warning(f"[{symbol}] ⚠️ Erro ao buscar trades alternativos: {trades_alt_error}")
+                        
+                        # Tentativa 2: Se ainda não encontrou, usa preço de mercado atual como aproximação
+                        if exit_price <= MIN_VALID_PRICE:
+                            try:
+                                ticker = await asyncio.wait_for(
+                                    gerenciador.binance_handler.client.fetch_ticker(symbol),
+                                    timeout=5.0
+                                )
+                                exit_price = float(ticker.get('last', 0) or ticker.get('close', 0))
+                                if exit_price > MIN_VALID_PRICE:
+                                    logger.info(f"[{symbol}] ⚠️ Usando preço de mercado atual como aproximação: {exit_price:.8f}")
+                                    exit_reason += " (preço aprox.)"
+                            except Exception as ticker_error:
+                                logger.warning(f"[{symbol}] ⚠️ Erro ao buscar ticker: {ticker_error}")
+                    
+                    # Calcula PNL se tiver dados suficientes
+                    # Validação robusta: preços devem ser maiores que 0.00000001 (evita divisão por zero ou valores inválidos)
+                    
+                    # 🚨 VALIDAÇÃO: Quantidade não pode ser absurda (máximo razoável para testnet)
+                    MAX_REASONABLE_AMOUNT = 1000  # Ajuste conforme necessário
+                    if amount > MAX_REASONABLE_AMOUNT:
+                        logger.warning(f"[{symbol}] ⚠️ ALERTA: Quantidade suspeita detectada: {amount}")
+                        logger.warning(f"[{symbol}] 📊 Valores: entry_price={entry_price}, exit_price={exit_price}, amount={amount}")
+                        # Define quantidade razoável como fallback
+                        amount = 10.0
+                        logger.warning(f"[{symbol}] 🔧 Usando quantidade padrão como fallback: {amount}")
+                    
+                    if exit_price > MIN_VALID_PRICE and entry_price > MIN_VALID_PRICE and amount > 0:
+                        if side == 'long':
+                            pnl_percentage = ((exit_price - entry_price) / entry_price) * 100
+                            pnl_value = (exit_price - entry_price) * amount
+                        elif side == 'short':
+                            pnl_percentage = ((entry_price - exit_price) / entry_price) * 100
+                            pnl_value = (entry_price - exit_price) * amount
+                        else:
+                            pnl_percentage = 0
+                            pnl_value = 0
+                            logger.warning(f"[{symbol}] ⚠️ Lado da posição inválido: {side}")
+                        
+                        # 🔍 DEBUG: Mostra valores usados no cálculo
+                        logger.info(f"[{symbol}] 🔢 Cálculo PNL: Entry={entry_price:.8f}, Exit={exit_price:.8f}, Amount={amount:.4f}, PNL=${pnl_value:.2f}")
+                        
+                        # Monta mensagem detalhada
+                        pnl_symbol = "📈" if pnl_percentage >= 0 else "📉"
+                        pnl_color = "🟢" if pnl_percentage >= 0 else "🔴"
+                        
+                        detailed_msg = (
+                            f"✅ Posição fechada: {symbol}\n"
+                            f"{pnl_color} {side.upper()} | {exit_reason}\n"
+                            f"{pnl_symbol} PNL: {pnl_percentage:+.2f}% (${pnl_value:+.2f})\n"
+                            f"📍 Entrada: {entry_price:.8f}\n"
+                            f"📍 Saída: {exit_price:.8f}"
+                        )
+                        
+                        await context.bot.send_message(
+                            chat_id=chat_id,
+                            text=detailed_msg
+                        )
+                        
+                        # 🆕 EXPORTA PARA EXCEL
+                        try:
+                            gerenciador._export_trade_to_excel(
+                                symbol=symbol,
+                                entry_price=entry_price,
+                                exit_price=exit_price,
+                                pnl=pnl_value,
+                                percentage=pnl_percentage / 100,  # Converte para decimal
+                                reason=exit_reason,
+                                entry_time=entry_time,
+                                context=context
+                            )
+                            logger.info(f"[{symbol}] 📊 Trade exportado para Excel pelo monitor")
+                            
+                            # 🛡️ Registra exportação para evitar duplicação
+                            _recently_exported[symbol] = time.time()
+                            
+                        except Exception as excel_error:
+                            logger.error(f"[{symbol}] ❌ Erro ao exportar para Excel: {excel_error}")
+                            await context.bot.send_message(
+                                chat_id=chat_id,
+                                text=f"⚠️ Erro ao exportar {symbol} para Excel: {str(excel_error)[:100]}"
+                            )
+                    else:
+                        # Não conseguiu obter detalhes suficientes, envia mensagem simples
+                        logger.warning(f"[{symbol}] ⚠️ Dados insuficientes para calcular PNL (entry_price={entry_price}, exit_price={exit_price})")
+                        await context.bot.send_message(
+                            chat_id=chat_id,
+                            text=f"""✅ Posição fechada: {symbol}\n⚠️ Não foi possível obter detalhes completos 
+                            \n(entry_price={entry_price}, exit_price={exit_price}, amount={amount})"""
+                        )
+                    
+                except Exception as detail_error:
+                    msg = f"❌ Erro ao buscar detalhes do fechamento de {symbol}: {detail_error}"
+                    logger.warning(msg)
+                    msg = msg + f"\nEnviando notificação simples. \n ✅ Posição fechada: {symbol}" 
+                    # Envia mensagem simples em caso de erro
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=msg
+                    )
             
             # Limpa cache de PNL das posições fechadas
             for symbol in closed_positions:
@@ -234,6 +449,18 @@ async def monitor_risk_management(context: CallbackContext) -> None:
             entry_price = float(position.get('entryPrice', 0))
             mark_price = float(position.get('info', {}).get('markPrice', 0))
             unrealized_pnl = float(position.get('info', {}).get('unRealizedProfit', 0))
+            
+            # 🆕 SALVA DADOS DE ENTRADA IMEDIATAMENTE (antes de processar stop_dinamico)
+            # Isso garante que tenhamos os dados mesmo se a posição for fechada rapidamente
+            if symbol not in gerenciador._position_entry_data:
+                gerenciador._position_entry_data[symbol] = {
+                    'entry_time': None,  # Será preenchido depois se disponível
+                    'entry_price': entry_price,
+                    'side': side,
+                    'amount': contracts
+                }
+                gerenciador._save_trailing_data()
+                logger.info(f"[{symbol}] 💾 Dados de entrada salvos no monitor: {entry_price:.8f}")
             
             # Calcula percentual de lucro/prejuízo
             pnl_percentage = 0.0

@@ -115,10 +115,10 @@ async def strategy_MA_SlowStochastic_Combo(binance, context, **kwargs):
                 # Não é crítico, continua com as configurações padrão
             
             # Notifica no Telegram
-            try:
-                await context.bot.send_message(chat_id=chat_id, text=f"🔍 Analisando {symbol}...")
-            except Exception as notify_error:
-                print(f"Erro ao notificar análise de {symbol}: {notify_error}")
+            # try:
+            #     await context.bot.send_message(chat_id=chat_id, text=f"🔍 Analisando {symbol}...")
+            # except Exception as notify_error:
+            #     print(f"Erro ao notificar análise de {symbol}: {notify_error}")
 
             # Obtém dados de candles com timeout de 30 segundos
             try:
@@ -310,9 +310,9 @@ async def strategy_MA_SlowStochastic_Combo(binance, context, **kwargs):
                         await context.bot.send_message(
                             chat_id=chat_id,
                             text=f"🚀 Abrindo *LONG* em {symbol}\n"
-                                 f"💵 Preço: {price:.2f}\n"
-                                 f"🎯 TP: {take_profit*100:.1f}% (${take_profit_price:.2f})\n"
-                                 f"🛑 SL: {stop_loss_percent*100:.1f}% (${stop_loss_price:.2f})\n"
+                                 f"💵 Preço: {price:.8f}\n"
+                                 f"🎯 TP: {take_profit*100:.1f}% (${take_profit_price:.8f})\n"
+                                 f"🛑 SL: {stop_loss_percent*100:.1f}% (${stop_loss_price:.8f})\n"
                                  f"📊 Quantidade: {posicao}\n"
                                  f"🛡️ Stops criados | 🔄 Monitor ativo para trailing",
                             parse_mode='Markdown'
@@ -375,9 +375,9 @@ async def strategy_MA_SlowStochastic_Combo(binance, context, **kwargs):
                         await context.bot.send_message(
                             chat_id=chat_id,
                             text=f"🚀 Abrindo *SHORT* em {symbol}\n"
-                                 f"💵 Preço: {price:.2f}\n"
-                                 f"🎯 TP: {take_profit*100:.1f}% (${take_profit_price:.2f})\n"
-                                 f"🛑 SL: {stop_loss_percent*100:.1f}% (${stop_loss_price:.2f})\n"
+                                 f"💵 Preço: {price:.8f}\n"
+                                 f"🎯 TP: {take_profit*100:.1f}% (${take_profit_price:.8f})\n"
+                                 f"🛑 SL: {stop_loss_percent*100:.1f}% (${stop_loss_price:.8f})\n"
                                  f"📊 Quantidade: {posicao}\n"
                                  f"🛡️ Stops criados | 🔄 Monitor ativo para trailing",
                             parse_mode='Markdown'

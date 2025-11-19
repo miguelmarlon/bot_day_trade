@@ -7,6 +7,7 @@ import ccxt.pro
 import decimal
 import asyncio
 import aiohttp
+import time
 from typing import Tuple, Dict, Any, Set
 from telegram.ext import CallbackContext
 from utils.binance_client import BinanceHandler
@@ -15,8 +16,13 @@ import json
 import math
 from datetime import datetime
 
+# Cache compartilhado para prevenção de duplicatas entre processos
+_recently_exported: Dict[str, float] = {}
+
 CONFIG_DIR = 'config'
+LOGS_DIR = 'logs'
 TRAILING_DATA_FILE = os.path.join(CONFIG_DIR, 'trailing_data.json')
+PENDING_EXPORTS_FILE = os.path.join(LOGS_DIR, 'trades_para_exportar.json')
 
 # Import do Excel Exporter - lazy import para evitar dependências circulares
 def _get_excel_exporter():
@@ -42,6 +48,8 @@ class GerenciamentoRiscoAsync:
         self._current_trailing_stop_price = {}
         self._position_entry_data = {}
         self._posicoes_abertas_anteriormente: Set[str] = set()
+        self._pending_exports = self._load_pending_exports()
+        self._last_pending_export_check = 0.0
         self._closed = False
         self._load_trailing_data()
         self.session = aiohttp.ClientSession()
@@ -289,9 +297,155 @@ class GerenciamentoRiscoAsync:
         except Exception as e:
             print(f"❌ Erro ao salvar {TRAILING_DATA_FILE}: {e}")
 
+    def _load_pending_exports(self) -> Dict[str, Any]:
+        """Carrega fila de exportações pendentes do disco."""
+        if not os.path.exists(PENDING_EXPORTS_FILE):
+            return {}
+        try:
+            with open(PENDING_EXPORTS_FILE, 'r') as f:
+                data = json.load(f) or {}
+                if isinstance(data, dict):
+                    return data
+        except Exception as e:
+            print(f"⚠️ Erro ao carregar {PENDING_EXPORTS_FILE}: {e}")
+        return {}
+
+    def _save_pending_exports(self) -> None:
+        """Persiste a fila de exportações pendentes."""
+        try:
+            os.makedirs(LOGS_DIR, exist_ok=True)
+            with open(PENDING_EXPORTS_FILE, 'w') as f:
+                json.dump(self._pending_exports, f, indent=2)
+        except Exception as e:
+            print(f"⚠️ Erro ao salvar {PENDING_EXPORTS_FILE}: {e}")
+
+    def _add_pending_export(self, symbol: str, entry_data: Dict[str, Any], reason: str, context: CallbackContext = None) -> None:
+        """Adiciona uma operação à fila de exportação pendente."""
+        pending_id = f"{symbol}_{int(time.time() * 1000)}"
+        pending_payload = {
+            'symbol': symbol,
+            'reason': reason,
+            'entry_price': float(entry_data.get('entry_price', 0) or 0),
+            'entry_time': entry_data.get('entry_time'),
+            'side': entry_data.get('side'),
+            'amount': float(entry_data.get('amount', 0) or 0),
+            'detected_ts': int(time.time() * 1000),
+        }
+        self._pending_exports[pending_id] = pending_payload
+        self._save_pending_exports()
+        print(f"[{symbol}] 📝 Exportação pendente adicionada: {pending_id}")
+        if context:
+            asyncio.create_task(self.enviar_mensagem(
+                context,
+                f"📝 Exportação pendente registrada para {symbol}\n"
+                f"Motivo: {reason}\n"
+                f"Entrada: {pending_payload['entry_price']:.8f}\n"
+                f"Quantidade: {pending_payload['amount']:.4f}"
+            ))
+
+    async def _process_pending_exports(self, context: CallbackContext = None, force: bool = False) -> None:
+        """Tenta exportar operações pendentes procurando trades recentes."""
+        if not self._pending_exports:
+            return
+
+        now = time.time()
+        if not force and (now - self._last_pending_export_check) < 15:
+            return
+
+        self._last_pending_export_check = now
+
+        for export_id, data in list(self._pending_exports.items()):
+            symbol = data.get('symbol')
+            entry_price = float(data.get('entry_price', 0) or 0)
+            entry_time = data.get('entry_time')
+            side = data.get('side')
+            amount = float(data.get('amount', 0) or 0)
+            detected_ts = int(data.get('detected_ts') or 0)
+
+            print(f"[{symbol}] 🔄 Processando exportação pendente {export_id}")
+
+            try:
+                trades = await asyncio.wait_for(
+                    self.binance_handler.client.fetch_my_trades(symbol, limit=50),
+                    timeout=15.0
+                )
+            except Exception as e:
+                print(f"[{symbol}] ⚠️ Erro ao buscar trades pendentes: {e}")
+                continue
+
+            matched_trade = None
+            for trade in reversed(trades):
+                trade_ts = trade.get('timestamp') or trade.get('datetime')
+                if trade_ts is None:
+                    # tenta fallback
+                    trade_ts = trade.get('info', {}).get('time')
+                if trade_ts is None:
+                    continue
+
+                trade_ts_int = int(trade_ts if isinstance(trade_ts, (int, float)) else 0)
+                if detected_ts and trade_ts_int and trade_ts_int < detected_ts:
+                    continue
+
+                matched_trade = trade
+                break
+
+            if not matched_trade:
+                print(f"[{symbol}] ⏳ Aguardando dados de trade para exportação pendente")
+                continue
+
+            info = matched_trade.get('info', {}) if isinstance(matched_trade, dict) else {}
+            exit_price = float(
+                matched_trade.get('price')
+                or info.get('price')
+                or info.get('avgPrice')
+                or info.get('stopPrice')
+                or 0
+            )
+            filled_amount = float(matched_trade.get('amount') or info.get('qty') or amount or 0)
+
+            if exit_price == 0 or filled_amount == 0:
+                print(f"[{symbol}] ⚠️ Dados insuficientes no trade pendente, aguardando...")
+                continue
+
+            pnl_value = float(info.get('realizedPnl') or 0)
+            if pnl_value == 0 and entry_price > 0:
+                if side == 'long':
+                    pnl_value = (exit_price - entry_price) * filled_amount
+                elif side == 'short':
+                    pnl_value = (entry_price - exit_price) * filled_amount
+
+            percentage = 0.0
+            if entry_price > 0 and filled_amount > 0:
+                position_value = entry_price * filled_amount
+                if position_value != 0:
+                    percentage = pnl_value / position_value
+
+            self._export_trade_to_excel(
+                symbol=symbol,
+                entry_price=entry_price,
+                exit_price=exit_price,
+                pnl=pnl_value,
+                percentage=percentage,
+                reason=data.get('reason', 'Fechamento pendente'),
+                entry_time=entry_time,
+                context=context
+            )
+
+            del self._pending_exports[export_id]
+            self._save_pending_exports()
+            print(f"[{symbol}] ✅ Exportação pendente concluída ({export_id})")
+            if context:
+                asyncio.create_task(self.enviar_mensagem(
+                    context,
+                    f"✅ Exportação pendente concluída para {symbol}\n"
+                    f"Saída: {exit_price:.8f}\n"
+                    f"PNL: {pnl_value:.2f} USD"
+                ))
+
     def _export_trade_to_excel(self, symbol: str, entry_price: float, exit_price: float, 
                                pnl: float, percentage: float, reason: str, 
-                               entry_time: Optional[str] = None) -> None:
+                               entry_time: Optional[str] = None,
+                               context: CallbackContext = None) -> None:
         """
         Exporta dados da operação fechada para Excel.
         
@@ -304,8 +458,23 @@ class GerenciamentoRiscoAsync:
             reason: Motivo do fechamento
             entry_time: Timestamp de entrada (opcional)
         """
+        print(f"[{symbol}] 🔧 DEBUG: Iniciando _export_trade_to_excel")
+        
+        # Verifica se já exportou recentemente (proteção contra duplicatas)
+        current_time = time.time()
+        last_export_time = _recently_exported.get(symbol, 0)
+        
+        if current_time - last_export_time < 60:
+            print(f"[{symbol}] ⚠️ Exportação já realizada há {int(current_time - last_export_time)}s, ignorando duplicata")
+            return
+        
+        print(f"[{symbol}] 🔧 DEBUG: entry_price={entry_price}, exit_price={exit_price}, pnl={pnl}, percentage={percentage}")
+        
         try:
+            print(f"[{symbol}] 🔧 DEBUG: Chamando _get_excel_exporter()")
             export_closed_trade, _ = _get_excel_exporter()
+            
+            print(f"[{symbol}] 🔧 DEBUG: export_closed_trade = {export_closed_trade}")
             
             if export_closed_trade is None:
                 print(f"[{symbol}] ⚠️ Exportação para Excel não disponível")
@@ -329,6 +498,18 @@ class GerenciamentoRiscoAsync:
                 'timestamp_saida': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
             
+            print(f"[{symbol}] 🔧 DEBUG: trade_data preparado = {trade_data}")
+
+            if context:
+                asyncio.create_task(self.enviar_mensagem(
+                    context,
+                    f"📓 Registrando operação {symbol}\n"
+                    f"Entrada: {entry_price:.8f}\n"
+                    f"Saída: {exit_price:.8f}\n"
+                    f"PNL: {pnl:.2f} USD ({percentage:.2%})\n"
+                    f"Motivo: {reason}"
+                ))
+            
             # Calcula duração se possível
             if entry_time and entry_time != 'N/A':
                 try:
@@ -336,18 +517,53 @@ class GerenciamentoRiscoAsync:
                     exit_dt = datetime.now()
                     duration = exit_dt - entry_dt
                     trade_data['duracao'] = str(duration)
-                except:
-                    pass
+                except Exception as duration_error:
+                    print(f"[{symbol}] ⚠️ Erro ao calcular duração: {duration_error}")
             
             # Exporta para Excel
-            if export_closed_trade(trade_data):
+            print(f"[{symbol}] 🔧 DEBUG: Chamando export_closed_trade(trade_data)")
+            print(f"[{symbol}] 🔧 DEBUG: trade_data completo = {json.dumps(trade_data, indent=2, default=str)}")
+            
+            try:
+                result = export_closed_trade(trade_data)
+                print(f"[{symbol}] 🔧 DEBUG: Resultado da exportação = {result}")
+            except Exception as export_error:
+                print(f"[{symbol}] ❌ EXCEÇÃO ao chamar export_closed_trade: {export_error}")
+                import traceback
+                print(traceback.format_exc())
+                result = False
+            
+            if result:
                 print(f"[{symbol}] ✅ Operação exportada para Excel")
+                
+                # Registra timestamp para prevenção de duplicatas
+                _recently_exported[symbol] = time.time()
+                
                 self._update_daily_summary()
+                if context:
+                    asyncio.create_task(self.enviar_mensagem(
+                        context,
+                        f"✅ Planilha atualizada para {symbol}\n"
+                        f"PNL: {pnl:.2f} USD ({percentage:.2%})"
+                    ))
             else:
                 print(f"[{symbol}] ⚠️ Falha ao exportar para Excel")
+                if context:
+                    asyncio.create_task(self.enviar_mensagem(
+                        context,
+                        f"⚠️ Falha ao salvar operação {symbol} no Excel\n"
+                        f"PNL: {pnl:.2f} USD ({percentage:.2%})"
+                    ))
                 
         except Exception as e:
             print(f"[{symbol}] ❌ Erro ao exportar trade: {e}")
+            import traceback
+            print(traceback.format_exc())
+            if context:
+                asyncio.create_task(self.enviar_mensagem(
+                    context,
+                    f"❌ Erro ao exportar {symbol}: {e}"
+                ))
 
     def _update_daily_summary(self) -> None:
         """Gera o resumo diário após uma exportação bem-sucedida."""
@@ -423,8 +639,37 @@ class GerenciamentoRiscoAsync:
             await self.close()  # Fecha recursos em caso de falha
             raise
 
+    async def get_last_exit_price(self, symbol: str) -> Optional[float]:
+        """
+        Busca o preço real de execução da última ordem de fechamento.
+        
+        Args:
+            symbol: Símbolo do ativo
+            
+        Returns:
+            Preço médio de execução ou None se não encontrar
+        """
+        try:
+            # Busca trades recentes (últimos 5)
+            trades = await self.binance_handler.client.fetch_my_trades(symbol, limit=5)
+            
+            if not trades:
+                print(f"[{symbol}] ⚠️ Nenhum trade recente encontrado")
+                return None
+            
+            # O trade mais recente
+            last_trade = trades[-1]
+            exit_price = float(last_trade.get('price', 0))
+            
+            print(f"[{symbol}] 💰 Preço de saída real: {exit_price:.8f} (do histórico de trades)")
+            return exit_price
+            
+        except Exception as e:
+            print(f"[{symbol}] ⚠️ Erro ao buscar preço de saída: {e}")
+            return None
+    
     async def encerra_posicao(self, symbol: str, context: CallbackContext = None, 
-                              try_limit_first: bool = True, limit_timeout: int = 10) -> None:
+                              try_limit_first: bool = True, limit_timeout: int = 10) -> Optional[float]:
         """
         Fecha uma posição de forma assíncrona usando estratégia híbrida LIMIT -> MARKET.
         
@@ -456,7 +701,7 @@ class GerenciamentoRiscoAsync:
                     print(msg)
                     if context:
                         await self.enviar_mensagem(context, msg)
-                    return
+                    return None
                 
                 # Valida amount
                 try:
@@ -466,14 +711,14 @@ class GerenciamentoRiscoAsync:
                     print(error_msg)
                     if context:
                         await self.enviar_mensagem(context, error_msg)
-                    return
+                    return None
                 
                 if amount_float <= 0:
                     msg = f'⚠️ Quantidade zero para {symbol}, nada para fechar'
                     print(msg)
                     if context:
                         await self.enviar_mensagem(context, msg)
-                    return
+                    return None
                 
                 # Cancela todas as ordens abertas antes de fechar
                 try:
@@ -507,7 +752,7 @@ class GerenciamentoRiscoAsync:
                             print(error_msg)
                             if context:
                                 await self.enviar_mensagem(context, error_msg)
-                            return
+                            return None
                         
                         # Ajusta precisão do preço
                         limit_price = self.binance_handler.client.price_to_precision(symbol, limit_price)
@@ -607,7 +852,7 @@ class GerenciamentoRiscoAsync:
                             print(error_msg)
                             if context:
                                 await self.enviar_mensagem(context, error_msg)
-                            return
+                            return None
                         
                         print(msg)
                         if context:
@@ -637,7 +882,11 @@ class GerenciamentoRiscoAsync:
                     print(success_msg)
                     if context:
                         await self.enviar_mensagem(context, success_msg)
-                    return
+                    
+                    # Busca o preço real de execução
+                    await asyncio.sleep(1)  # Aguarda propagação na API
+                    exit_price = await self.get_last_exit_price(symbol)
+                    return exit_price
                 else:
                     retry_count += 1
                     print(f'[{symbol}] ⚠️ Posição ainda aberta após tentativa {retry_count}/{max_retries}')
@@ -649,12 +898,14 @@ class GerenciamentoRiscoAsync:
             print(final_error)
             if context:
                 await self.enviar_mensagem(context, final_error)
+            return None
 
         except Exception as e:
             error_msg = f'❌ Erro crítico ao encerrar posição {symbol}: {str(e)}'
             print(error_msg)
             if context:
                 await self.enviar_mensagem(context, error_msg)
+            return None
 
     async def fecha_pnl(self, 
                         symbol: str, 
@@ -819,11 +1070,13 @@ class GerenciamentoRiscoAsync:
                 reason = 'Trailing Stop' if self._is_trailing_active[symbol] and current_loss_threshold > loss else 'STOP LOSS'
                 print(f"[{symbol}] 🚨 Encerrando por {reason}. PNL: {percentage:.4%} ({pnl_formatted} USD)")
                 
-                # Obtém preço atual antes de encerrar
-                _, _, _, _, _, _, _ = await self.posicoes_abertas(symbol)
-                current_price = entry_price_float * (1 + percentage)  # Calcula preço aproximado
+                # Fecha posição e obtém preço real de execução
+                exit_price_real = await self.encerra_posicao(symbol, context, try_limit_first=try_limit_first)
                 
-                await self.encerra_posicao(symbol, context, try_limit_first=try_limit_first)
+                # Se não conseguiu buscar o preço real, calcula aproximado
+                if exit_price_real is None or exit_price_real == 0:
+                    print(f"[{symbol}] ⚠️ Preço de saída real não disponível, calculando aproximado")
+                    exit_price_real = entry_price_float * (1 + percentage)
                 
                 msg = (f"❌ Saída por {reason}\n"
                        f"PNL: {pnl_formatted} USD ({percentage:.2%})\n"
@@ -836,11 +1089,12 @@ class GerenciamentoRiscoAsync:
                 self._export_trade_to_excel(
                     symbol=symbol,
                     entry_price=entry_price_float,
-                    exit_price=current_price,
+                    exit_price=exit_price_real,
                     pnl=pnl_float,
                     percentage=percentage,
                     reason=reason,
-                    entry_time=None  # TODO: Armazenar timestamp de entrada
+                    entry_time=None,  # TODO: Armazenar timestamp de entrada
+                    context=context
                 )
                 
                 # Limpa dados do trailing
@@ -858,10 +1112,13 @@ class GerenciamentoRiscoAsync:
             elif percentage >= target:
                 print(f"[{symbol}] ✅ Encerrando por TAKE PROFIT. PNL: {percentage:.4%} ({pnl_formatted} USD)")
                 
-                # Obtém preço atual antes de encerrar
-                current_price = entry_price_float * (1 + percentage)  # Calcula preço aproximado
+                # Fecha posição e obtém preço real de execução
+                exit_price_real = await self.encerra_posicao(symbol, context, try_limit_first=try_limit_first)
                 
-                await self.encerra_posicao(symbol, context, try_limit_first=try_limit_first)
+                # Se não conseguiu buscar o preço real, calcula aproximado
+                if exit_price_real is None or exit_price_real == 0:
+                    print(f"[{symbol}] ⚠️ Preço de saída real não disponível, calculando aproximado")
+                    exit_price_real = entry_price_float * (1 + percentage)
                 
                 msg = (f"✅ TAKE PROFIT atingido!\n"
                        f"PNL: {pnl_formatted} USD ({percentage:.2%})\n"
@@ -874,11 +1131,12 @@ class GerenciamentoRiscoAsync:
                 self._export_trade_to_excel(
                     symbol=symbol,
                     entry_price=entry_price_float,
-                    exit_price=current_price,
+                    exit_price=exit_price_real,
                     pnl=pnl_float,
                     percentage=percentage,
                     reason='Take Profit',
-                    entry_time=None  # TODO: Armazenar timestamp de entrada
+                    entry_time=None,  # TODO: Armazenar timestamp de entrada
+                    context=context
                 )
                 
                 # Limpa dados do trailing
@@ -962,7 +1220,7 @@ class GerenciamentoRiscoAsync:
         except Exception as e:
             print(f"Erro ao enviar mensagem: {e}")
 
-    async def stop_dinamico(self, symbol: str, take_profit: float, stop_loss: float, context: CallbackContext = None) -> None:
+    async def stop_dinamico(self, symbol: str, take_profit: float, stop_loss: float, context: CallbackContext = None, trailing_stop_initial_offset: float = 0.005) -> None:
         """
         Ajusta stops dinâmicos de forma assíncrona.
         
@@ -975,6 +1233,9 @@ class GerenciamentoRiscoAsync:
             take_profit: Percentual de lucro alvo (ex: 0.05 = 5%)
             stop_loss: Percentual de perda máxima (ex: 0.02 = 2%)
             context: Contexto do Telegram para envio de mensagens
+            trailing_stop_initial_offset: Offset de lucro mínimo ao ativar trailing pela primeira vez
+                                         (ex: 0.005 = 0.5%, garante saída com +0.5% ao ativar trailing)
+                                         Após ativação, usa stop_loss normal para trailing subsequente
         """
 
         def is_number(value) -> bool:
@@ -985,6 +1246,7 @@ class GerenciamentoRiscoAsync:
                     return False
                 
         try:
+            await self._process_pending_exports(context=context)
             # Obtém posições com timeout
             try:
                 positions = await asyncio.wait_for(
@@ -1021,8 +1283,10 @@ class GerenciamentoRiscoAsync:
                 should_persist = False
 
                 if stored_entry is None:
+                    entry_timestamp = time.time()  # Timestamp em segundos
                     self._position_entry_data[symbol] = {
                         'entry_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'entry_timestamp': entry_timestamp,  # Novo campo para cálculos
                         'entry_price': entry_price,
                         'side': side,
                         'amount': amount
@@ -1052,11 +1316,19 @@ class GerenciamentoRiscoAsync:
                 
                 if side == 'long':
                     # Para LONG: se preço caiu abaixo do stop loss
-                    if mark_price <= saved_stop_loss:
+                    # 🛡️ CRÍTICO: Adiciona margem de segurança de 0.1% para evitar fechamentos prematuros
+                    emergency_threshold = saved_stop_loss * 0.999  # SL - 0.1%
+                    
+                    # ⏱️ Verifica se a posição existe há pelo menos 60 segundos
+                    entry_timestamp = self._position_entry_data.get(symbol, {}).get('entry_timestamp', 0)
+                    time_since_entry = time.time() - entry_timestamp if entry_timestamp > 0 else 999999
+                    
+                    if mark_price <= emergency_threshold and time_since_entry >= 60:
                         emergency_msg = (
                             f"🚨 EMERGÊNCIA: Stop Loss violado em {symbol}!\n"
                             f"💰 LONG | Preço atual: {mark_price:.8f}\n"
-                            f"🛑 Stop Loss: {saved_stop_loss:.8f}\n"
+                            f"🛑 Stop Loss: {saved_stop_loss:.8f} (threshold: {emergency_threshold:.8f})\n"
+                            f"⏱️ Tempo desde entrada: {time_since_entry:.1f}s\n"
                             f"⚠️ Fechando posição imediatamente..."
                         )
                         print(emergency_msg)
@@ -1085,7 +1357,8 @@ class GerenciamentoRiscoAsync:
                                 pnl=pnl_value,
                                 percentage=pnl_percentage,
                                 reason="Stop Loss violado durante downtime (Trailing Stop)",
-                                entry_time=entry_time_str
+                                entry_time=entry_time_str,
+                                context=context
                             )
                             
                             # Limpa dados do trailing (LONG)
@@ -1116,14 +1389,38 @@ class GerenciamentoRiscoAsync:
                                 except:
                                     pass
                             return
+                    elif mark_price <= saved_stop_loss and time_since_entry < 60:
+                        # Preço violou SL mas posição é muito recente - aguardar
+                        print(f"[{symbol}] ⚠️ ALERTA PRÉ-MONITOR: Stop Loss violado!")
+                        print(f"[{symbol}] {side.upper()} | Preço: {mark_price:.8f} ≤ SL: {saved_stop_loss:.8f}")
+                        print(f"[{symbol}] ⏱️ Posição aberta há {time_since_entry:.1f}s (mínimo: 60s)")
+                        print(f"[{symbol}] ⚠️ Deixando stop_dinamico() tratar o fechamento...")
+                        if context:
+                            try:
+                                await self.enviar_mensagem(
+                                    context,
+                                    f"🚨 ALERTA PRÉ-MONITOR: Stop Loss violado!\n"
+                                    f"{symbol} {side.upper()} | Preço: {mark_price:.8f} ≤ SL: {saved_stop_loss:.8f}\n"
+                                    f"⚠️ Deixando stop_dinamico() tratar o fechamento..."
+                                )
+                            except:
+                                pass
                 
                 elif side == 'short':
                     # Para SHORT: se preço subiu acima do stop loss
-                    if mark_price >= saved_stop_loss:
+                    # 🛡️ CRÍTICO: Adiciona margem de segurança de 0.1% para evitar fechamentos prematuros
+                    emergency_threshold = saved_stop_loss * 1.001  # SL + 0.1%
+                    
+                    # ⏱️ Verifica se a posição existe há pelo menos 60 segundos
+                    entry_timestamp = self._position_entry_data.get(symbol, {}).get('entry_timestamp', 0)
+                    time_since_entry = time.time() - entry_timestamp if entry_timestamp > 0 else 999999
+                    
+                    if mark_price >= emergency_threshold and time_since_entry >= 60:
                         emergency_msg = (
                             f"🚨 EMERGÊNCIA: Stop Loss violado em {symbol}!\n"
                             f"💰 SHORT | Preço atual: {mark_price:.8f}\n"
-                            f"🛑 Stop Loss: {saved_stop_loss:.8f}\n"
+                            f"🛑 Stop Loss: {saved_stop_loss:.8f} (threshold: {emergency_threshold:.8f})\n"
+                            f"⏱️ Tempo desde entrada: {time_since_entry:.1f}s\n"
                             f"⚠️ Fechando posição imediatamente..."
                         )
                         print(emergency_msg)
@@ -1142,17 +1439,23 @@ class GerenciamentoRiscoAsync:
                         
                         # Fecha posição imediatamente
                         try:
-                            await self.encerra_posicao(symbol, context, try_limit_first=True)
+                            exit_price_real = await self.encerra_posicao(symbol, context, try_limit_first=True)
+                            
+                            # Se não conseguiu buscar o preço real, usa mark_price como fallback
+                            if exit_price_real is None or exit_price_real == 0:
+                                print(f"[{symbol}] ⚠️ Preço de saída real não disponível, usando mark_price")
+                                exit_price_real = mark_price
                             
                             # Exporta dados para Excel
                             self._export_trade_to_excel(
                                 symbol=symbol,
                                 entry_price=entry_price,
-                                exit_price=mark_price,
+                                exit_price=exit_price_real,
                                 pnl=pnl_value,
                                 percentage=pnl_percentage,
                                 reason="Stop Loss violado durante downtime (Trailing Stop)",
-                                entry_time=entry_time_str
+                                entry_time=entry_time_str,
+                                context=context
                             )
                             
                             # Limpa dados do trailing (SHORT)
@@ -1183,15 +1486,36 @@ class GerenciamentoRiscoAsync:
                                 except:
                                     pass
                             return
+                    elif mark_price >= saved_stop_loss and time_since_entry < 60:
+                        # Preço violou SL mas posição é muito recente - aguardar
+                        print(f"[{symbol}] ⚠️ ALERTA PRÉ-MONITOR: Stop Loss violado!")
+                        print(f"[{symbol}] {side.upper()} | Preço: {mark_price:.8f} ≥ SL: {saved_stop_loss:.8f}")
+                        print(f"[{symbol}] ⏱️ Posição aberta há {time_since_entry:.1f}s (mínimo: 60s)")
+                        print(f"[{symbol}] ⚠️ Deixando stop_dinamico() tratar o fechamento...")
+                        if context:
+                            try:
+                                await self.enviar_mensagem(
+                                    context,
+                                    f"🚨 ALERTA PRÉ-MONITOR: Stop Loss violado!\n"
+                                    f"{symbol} {side.upper()} | Preço: {mark_price:.8f} ≥ SL: {saved_stop_loss:.8f}\n"
+                                    f"⚠️ Deixando stop_dinamico() tratar o fechamento..."
+                                )
+                            except:
+                                pass
             
             # Validação crítica: verifica se a posição está realmente aberta
             is_position_open = side in ('long', 'short') and amount > 0
+            
+            print(f"[{symbol}] 🔧 DEBUG: is_position_open={is_position_open}, side={side}, amount={amount}")
             
             if not is_position_open or amount == 0:
                 print(f"[{symbol}] Posição não está aberta ou quantidade é zero (side: {side}, amount: {amount})")
                
                 trailing_active = self._is_trailing_active.get(symbol, False)
                 saved_entry_data = self._position_entry_data.get(symbol, {})
+                
+                print(f"[{symbol}] 🔧 DEBUG: trailing_active={trailing_active}")
+                print(f"[{symbol}] 🔧 DEBUG: saved_entry_data={saved_entry_data}")
 
                 if saved_entry_data:
                     context_label = "trailing ativo" if trailing_active else "sem trailing ativo"
@@ -1259,9 +1583,21 @@ class GerenciamentoRiscoAsync:
                         if exit_price == 0 and isinstance(exit_payload, dict):
                             exit_price = float(info.get('avgPrice') or info.get('stopPrice') or 0)
 
+                        # 🔍 CORREÇÃO CRÍTICA: filled_amount deve ser da ordem/trade específico, não total
                         filled_key = 'filled' if isinstance(exit_payload, dict) else 'amount'
-                        filled_amount_value = exit_payload.get(filled_key, saved_amount)
-                        filled_amount = float(filled_amount_value or saved_amount or amount or 0)
+                        filled_amount_from_payload = float(exit_payload.get(filled_key, 0) or 0)
+                        
+                        # Se não conseguiu da ordem/trade, usa saved_amount como último recurso
+                        filled_amount = filled_amount_from_payload if filled_amount_from_payload > 0 else saved_amount
+                        
+                        # 🚨 VALIDAÇÃO: Quantidade não pode ser absurda (máximo razoável para testnet)
+                        MAX_REASONABLE_AMOUNT = 1000  # Ajuste conforme necessário
+                        if filled_amount > MAX_REASONABLE_AMOUNT:
+                            print(f"[{symbol}] ⚠️ ALERTA: Quantidade suspeita detectada: {filled_amount}")
+                            print(f"[{symbol}] 📊 filled_from_payload: {filled_amount_from_payload}, saved_amount: {saved_amount}")
+                            # Usa saved_amount se filled_amount for absurdo
+                            filled_amount = saved_amount
+                            print(f"[{symbol}] 🔧 Usando saved_amount como fallback: {filled_amount}")
 
                         pnl_value_raw = info.get('realizedPnl') if isinstance(info, dict) else 0
                         pnl_value = float(pnl_value_raw or 0)
@@ -1271,6 +1607,13 @@ class GerenciamentoRiscoAsync:
                                 pnl_value = (exit_price - saved_entry_price) * filled_amount
                             elif saved_side == 'short':
                                 pnl_value = (saved_entry_price - exit_price) * filled_amount
+                        
+                        # 🔍 DEBUG: Mostra valores usados no cálculo
+                        print(f"[{symbol}] 🔢 Cálculo PNL:")
+                        print(f"  Entry: {saved_entry_price:.8f}")
+                        print(f"  Exit: {exit_price:.8f}")
+                        print(f"  Amount: {filled_amount:.4f}")
+                        print(f"  PNL: ${pnl_value:.2f}")
 
                         if saved_side == 'long' and saved_entry_price > 0:
                             pnl_percentage = (exit_price - saved_entry_price) / saved_entry_price
@@ -1290,7 +1633,8 @@ class GerenciamentoRiscoAsync:
                                 pnl=pnl_value,
                                 percentage=pnl_percentage,
                                 reason=exit_reason,
-                                entry_time=saved_entry_time
+                                entry_time=saved_entry_time,
+                                context=context
                             )
 
                             if context:
@@ -1306,8 +1650,10 @@ class GerenciamentoRiscoAsync:
                                     print(f"[{symbol}] Erro ao notificar exportação: {notify_error}")
                         else:
                             print(f"[{symbol}] ⚠️ Dados insuficientes para exportar operação fechada")
+                            self._add_pending_export(symbol, saved_entry_data, exit_reason, context)
                     else:
                         print(f"[{symbol}] ⚠️ Não foi possível identificar ordens ou trades para exportação")
+                        self._add_pending_export(symbol, saved_entry_data, exit_reason, context)
                 else:
                     print(f"[{symbol}] ℹ️ Nenhum dado de entrada armazenado para exportar")
                 
@@ -1342,23 +1688,7 @@ class GerenciamentoRiscoAsync:
                 orders = []
             
             take_profit_price = None
-            # if orders:
-            #     for order in orders:
-            #         if order.get('type') == 'TAKE_PROFIT_MARKET' and \
-            #             order.get('stopPrice') is not None and \
-            #             is_number(order['stopPrice']):
-            #             take_profit_order_price = float(order['stopPrice'])
-            #             break 
-                
-            #     if take_profit_order_price is None:
-            #         last_order = orders[-1]
-            #         if last_order.get('stopPrice') is not None and \
-            #             is_number(last_order['stopPrice']):
-            #             take_profit_order_price = float(last_order['stopPrice'])
-            #         else:
-            #             print(f"[{symbol}] Aviso: last_order['stopPrice'] não é um número válido ou ordem sem stopPrice. Valor: {last_order.get('stopPrice')}, Ordem Tipo: {last_order.get('type')}")
             
-            #-------- ACERTAR ESSA LÓGICA --------
             if orders:
                 # Primeiro, tente encontrar uma ordem TAKE_PROFIT_MARKET ativa com stopPrice
                 for order in orders:
@@ -1421,28 +1751,29 @@ class GerenciamentoRiscoAsync:
                 
                 highest_price = self._highest_price_reached[symbol]
                 
-                # DEBUG: Mostra valor atual armazenado
-                # print(f"[{symbol}] 🔍 DEBUG: highest_price usado para cálculo: {highest_price:.8f}")
-                
-                # msg = f'📊 {symbol} LONG: {price_var:.2f}% | Progresso até TP: {progress_percent:.1f}% | Maior preço: {highest_price:.8f}'
-                # print(msg)
-                # if context:
-                #     try:
-                #         await self.enviar_mensagem(context, msg)
-                #     except Exception as notify_error:
-                #         print(f"[{symbol}] Erro ao enviar mensagem de progresso: {notify_error}")
-
-                # CONDIÇÃO AJUSTADA: Ativa quando atingir 50% do caminho até o take profit
-                # Isso torna o trailing stop mais agressivo e protege lucros mais cedo
                 if progress_percent >= 50:
                     # Verifica se já existe um trailing stop ativo
                     current_stop_loss_in_order = None
                     if symbol in self._current_trailing_stop_price:
                         current_stop_loss_in_order = self._current_trailing_stop_price[symbol]
                     
+                    # 🆕 LÓGICA DE TRAILING STOP INICIAL AJUSTADO
+                    # Na primeira ativação: usa offset pequeno (ex: 0.5%) para garantir lucro mínimo
+                    # Nas ativações subsequentes: usa stop_loss normal para trailing
+                    is_first_activation = current_stop_loss_in_order is None
+                    
+                    if is_first_activation:
+                        # Primeira ativação: SL próximo ao preço de entrada para garantir lucro mínimo
+                        # Exemplo: se entry_price=1.00 e offset=0.005, SL=1.00*(1+0.005)=1.005 (+0.5%)
+                        new_stop_loss_price = entry_price * (1 + trailing_stop_initial_offset)
+                        print(f"[{symbol}] 🎯 Primeira ativação do trailing: SL ajustado para +{trailing_stop_initial_offset*100:.2f}% do preço de entrada")
+                        print(f"[{symbol}] 📊 Entry: {entry_price:.8f} → SL Inicial: {new_stop_loss_price:.8f} (lucro mínimo garantido)")
+                    else:
+                        # Trailing subsequente: usa stop_loss normal baseado no maior preço
+                        new_stop_loss_price = highest_price * (1 - stop_loss)
+                    
                     # Calcula novo stop loss baseado no MAIOR PREÇO atingido, não no preço atual
                     # Isso garante que o SL só sobe (protege lucros) e nunca desce (aumenta risco)
-                    new_stop_loss_price = highest_price * (1 - stop_loss)
                     new_take_profit_price = highest_price * (1 + take_profit)
                     
                     # VALIDAÇÃO ADICIONAL: Verifica se highest_price não diminuiu (bug detection)
@@ -1596,14 +1927,6 @@ class GerenciamentoRiscoAsync:
                 
                 # DEBUG: Mostra valor atual armazenado
                 print(f"[{symbol}] 🔍 DEBUG: lowest_price usado para cálculo: {lowest_price:.8f}")
-                
-                # msg = f'📊 {symbol} SHORT: {price_var:.2f}% | Progresso até TP: {progress_percent:.1f}% | Menor preço: {lowest_price:.8f}'
-                # print(msg)
-                if context:
-                    try:
-                        await self.enviar_mensagem(context, msg)
-                    except Exception as notify_error:
-                        print(f"[{symbol}] Erro ao enviar mensagem de progresso: {notify_error}")
 
                 # CONDIÇÃO AJUSTADA: Ativa quando atingir 25% do caminho até o take profit
                 if progress_percent >= 25:
@@ -1612,9 +1935,23 @@ class GerenciamentoRiscoAsync:
                     if symbol in self._current_trailing_stop_price:
                         current_stop_loss_in_order = self._current_trailing_stop_price[symbol]
                     
+                    # 🆕 LÓGICA DE TRAILING STOP INICIAL AJUSTADO
+                    # Na primeira ativação: usa offset pequeno (ex: 0.5%) para garantir lucro mínimo
+                    # Nas ativações subsequentes: usa stop_loss normal para trailing
+                    is_first_activation = current_stop_loss_in_order is None
+                    
+                    if is_first_activation:
+                        # Primeira ativação SHORT: SL próximo ao preço de entrada para garantir lucro mínimo
+                        # Exemplo: se entry_price=1.00 e offset=0.005, SL=1.00*(1-0.005)=0.995 (+0.5% lucro em SHORT)
+                        new_stop_loss_price = entry_price * (1 - trailing_stop_initial_offset)
+                        print(f"[{symbol}] 🎯 Primeira ativação do trailing SHORT: SL ajustado para +{trailing_stop_initial_offset*100:.2f}% lucro")
+                        print(f"[{symbol}] 📊 Entry: {entry_price:.8f} → SL Inicial: {new_stop_loss_price:.8f} (lucro mínimo garantido)")
+                    else:
+                        # Trailing subsequente: usa stop_loss normal baseado no menor preço
+                        new_stop_loss_price = lowest_price * (1 + stop_loss)
+                    
                     # Calcula novo stop loss baseado no MENOR PREÇO atingido, não no preço atual
                     # Isso garante que o SL só desce (protege lucros) e nunca sobe (aumenta risco)
-                    new_stop_loss_price = lowest_price * (1 + stop_loss)
                     new_take_profit_price = lowest_price * (1 - take_profit)
                     
                     # VALIDAÇÃO ADICIONAL: Verifica se lowest_price não aumentou (bug detection)
